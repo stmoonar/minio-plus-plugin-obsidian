@@ -48,76 +48,83 @@ export default class MinioUploaderPlugin extends Plugin {
 	async onload() {
 		await this.loadSettings();
 
-		this.minioClient = new Client({
-			endPoint: this.settings.endpoint,
-			port: this.settings.port,
-			useSSL: this.settings.useSSL,
-			region: this.settings.region,
-			accessKey: this.settings.accessKey,
-			secretKey: this.settings.secretKey
-		});
+		this.addSettingTab(new MinioSettingTab(this.app, this));
 
-		// This adds a simple command that can be triggered anywhere
-		// this.addCommand({
-		// 	id: 'open-sample-modal-simple',
-		// 	name: 'Open sample modal (simple)',
-		// 	callback: () => {
-		// 		new SampleModal(this.app).open();
-		// 	}
-		// });
-		// This adds an editor command that can perform some operation on the current editor instance
 		this.addCommand({
 			id: 'minio-uploader',
 			name: t('File upload'),
 			icon: 'upload-cloud',
 			editorCallback: (editor: Editor) => {
-				const input = document.createElement('input')
-				input.setAttribute('type', 'file')
-				input.setAttribute('accept', 'image/*,video/*,.doc,.docx,.pdf,.pptx,.xlsx,.xls')
-				input.onchange = async (event: Event) => {
-					const file = (event.target as any)?.files[0]
-
-					const { endpoint, port, useSSL, bucket, basepath } = this.settings
-					const host = `http${useSSL ? 's' : ''}://${endpoint}${port === 443 || port === 80 ? '' : ':' + port}`
-					let replaceText = `[${t('Uploading')}：0%](${file.name})\n`;
-					editor.replaceSelection(replaceText);
-
-					const objectName = await this.minioUploader(file, (process) => {
-						const replaceText2 = `[${t('Uploading')}：${process}%](${file.name})`;
-						this.replaceText(editor, replaceText, replaceText2)
-						replaceText = replaceText2
-					})
-					const baseUrl = `${host}/${bucket}/${objectName}`;
-					const url = this.settings.customDomain 
-						? `${this.settings.customDomain}/${bucket}/${objectName}`
-						: baseUrl;
-
-					this.replaceText(editor, replaceText, this.wrapFileDependingOnType(this.getFileType(file), url, file.name))
+				if (!this.validateSettings()) {
+					new Notice(t('Please configure Minio settings first'));
+					return;
 				}
-				input.click()
+				const input = document.createElement('input');
+				input.setAttribute('type', 'file');
+				input.setAttribute('accept', 'image/*,video/*,.doc,.docx,.pdf,.pptx,.xlsx,.xls');
+				input.onchange = async (event: Event) => {
+					const file = (event.target as HTMLInputElement)?.files?.[0];
+					if (file) {
+						await this.handleUploader(
+							new ClipboardEvent('paste', {
+								clipboardData: new DataTransfer()
+							}), 
+							editor
+						);
+					}
+				};
+				input.click();
 			}
 		});
 
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new MinioSettingTab(this.app, this));
+		if (this.validateSettings()) {
+			this.minioClient = new Client({
+				endPoint: this.settings.endpoint,
+				port: this.settings.port,
+				useSSL: this.settings.useSSL,
+				region: this.settings.region,
+				accessKey: this.settings.accessKey,
+				secretKey: this.settings.secretKey
+			});
 
-		this.registerEvent(
-			this.app.workspace.on("editor-paste", this.handleUploader.bind(this))
-		);
-		this.registerEvent(
-			this.app.workspace.on("editor-drop", this.handleUploader.bind(this))
+			this.registerEvent(
+				this.app.workspace.on("editor-paste", this.handleUploader.bind(this))
+			);
+			this.registerEvent(
+				this.app.workspace.on("editor-drop", this.handleUploader.bind(this))
+			);
+
+			this.registerView(
+				GALLERY_VIEW_TYPE,
+				(leaf) => new MinioGalleryView(leaf, this.minioClient, this.settings)
+			);
+
+			this.addRibbonIcon('image-file', 'Minio Gallery', () => {
+				this.activateView();
+			});
+		}
+	}
+
+	private validateSettings(): boolean {
+		const requiredSettings = [
+			'accessKey',
+			'secretKey',
+			'endpoint',
+			'bucket'
+		] as const;
+
+		type RequiredSetting = typeof requiredSettings[number];
+
+		const missingSettings = requiredSettings.filter(
+			(setting: RequiredSetting) => !this.settings[setting]
 		);
 
-		// 注册视图
-		this.registerView(
-			GALLERY_VIEW_TYPE,
-			(leaf) => new MinioGalleryView(leaf, this.minioClient, this.settings)
-		);
+		if (missingSettings.length > 0) {
+			console.log('Missing required Minio settings:', missingSettings);
+			return false;
+		}
 
-		// 添加图标到左侧栏
-		this.addRibbonIcon('image-file', 'Minio Gallery', () => {
-			this.activateView();
-		});
+		return true;
 	}
 
 	async activateView() {
@@ -313,7 +320,17 @@ export default class MinioUploaderPlugin extends Plugin {
 	}
 
 	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		// 尝试读取 data.json 文件
+		const existingData = await this.loadData();
+		
+		if (!existingData) {
+			// 如果 data.json 不存在或为空，创建包含默认配置的文件
+			await this.saveData(DEFAULT_SETTINGS);
+			this.settings = {...DEFAULT_SETTINGS};
+		} else {
+			// 如果文件存在合并现有配置和默认配置
+			this.settings = Object.assign({}, DEFAULT_SETTINGS, existingData);
+		}
 	}
 
 	async saveSettings() {

@@ -53,5 +53,6 @@ export default {
 	'URL copied': '链接已复制',
 	'Delete': '删除',
 	'Cancel': '取消',
-	'Confirm delete?': '确认删除该图片吗？'
+	'Confirm delete?': '确认删除该图片吗？',
+	'Please configure Minio settings first': '请先配置 Minio 设置'
 }
