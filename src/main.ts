@@ -99,7 +99,7 @@ export default class MinioUploaderPlugin extends Plugin {
 				(leaf) => new MinioGalleryView(leaf, this.minioClient, this.settings)
 			);
 
-			this.addRibbonIcon('image-file', 'Minio Gallery', () => {
+			this.addRibbonIcon('image-file', 'Minio gallery', () => {
 				this.activateView();
 			});
 		}
@@ -389,8 +389,10 @@ class MinioSettingTab extends PluginSettingTab {
 
 		containerEl.empty();
 
-		containerEl.createEl("h3", { text: t("Minio OSS") });
-		containerEl.createEl("br");
+		new Setting(containerEl)
+			.setName(t("Minio OSS"))
+			.setHeading();
+
 		new Setting(containerEl)
 			.setName('Access key')
 			.setDesc(t('Required'))
@@ -483,8 +485,11 @@ class MinioSettingTab extends PluginSettingTab {
 					this.plugin.settings.useSSL = value;
 					await this.plugin.saveSettings();
 				}));
-		containerEl.createEl("h3", { text: t("Object rules") });
-		containerEl.createEl("br");
+
+		new Setting(containerEl)
+			.setName(t("Object rules"))
+			.setHeading();
+
 		new Setting(containerEl)
 			.setName(t('Object naming rules'))
 			.setDesc(t('Naming rules description'))
@@ -511,8 +516,10 @@ class MinioSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}))
 
-		containerEl.createEl("h3", { text: t("Preview") });
-		containerEl.createEl("br");
+		new Setting(containerEl)
+			.setName(t("Preview"))
+			.setHeading();
+
 		new Setting(containerEl)
 			.setName(t('Image preview'))
 			.setDesc(t('Image preview description'))

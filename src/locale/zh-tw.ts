@@ -42,7 +42,7 @@ export default {
 	'Office online': '微軟檔案預覽',
 
 	'Uploading': '上傳中',
-	'Minio Gallery': 'Minio 圖庫',
+	'Minio gallery': 'Minio 圖庫',
 	'Loading...': '加載中...',
 	'Load failed': '加載失敗',
 	'Delete success': '刪除成功',

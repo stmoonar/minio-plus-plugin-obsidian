@@ -39,7 +39,7 @@ export class MinioGalleryView extends ItemView {
     }
 
     getDisplayText(): string {
-        return t('Minio Gallery');
+        return t('Minio gallery');
     }
 
     getIcon(): string {

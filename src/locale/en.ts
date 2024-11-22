@@ -41,7 +41,7 @@ export default {
 
 	'Uploading' : 'Uploading',
 
-	'Minio Gallery': 'Minio Gallery',
+	'Minio gallery': 'Minio gallery',
 	'Loading...': 'Loading...',
 	'Load failed': 'Load failed',
 	'Delete success': 'Delete successfully',

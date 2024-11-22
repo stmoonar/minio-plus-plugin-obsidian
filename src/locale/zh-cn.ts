@@ -42,7 +42,7 @@ export default {
 	'Office online': '微软文档预览',
 
 	'Uploading': '上传中',
-	'Minio Gallery': 'Minio 图库',
+	'Minio gallery': 'Minio 图库',
 	'Loading...': '加载中...',
 	'Load failed': '加载失败',
 	'Delete success': '删除成功',
