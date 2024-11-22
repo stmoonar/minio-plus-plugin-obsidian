@@ -5,6 +5,6 @@
 	"minAppVersion": "0.15.0",
 	"description": "Upload and manage files to Minio OSS with ease.",
 	"author": "stmoonar",
-	"authorUrl": "https://www.stmoonar.me",
+	"authorUrl": "https://blog.stmoonar.me",
 	"isDesktopOnly": false
 }
