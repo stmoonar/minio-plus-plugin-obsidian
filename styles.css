@@ -314,3 +314,69 @@ If your plugin does not need CSS, delete this file.
     opacity: 0.5;
     cursor: wait;
 }
+
+/* Upload Preview */
+.upload-preview-container {
+    position: relative;
+    display: inline-block;
+    max-width: 100%;
+    border-radius: var(--minio-border-radius);
+    overflow: hidden;
+    margin-bottom: 10px;
+}
+
+.upload-preview-container::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(to right, rgba(0, 0, 0, 0.5) 50%, transparent 50%);
+    z-index: 1;
+    transition: background var(--minio-transition-duration) ease;
+}
+
+.upload-preview-container.completed::before {
+    background: transparent;
+}
+
+.upload-preview-container img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    transition: filter var(--minio-transition-duration) ease;
+}
+
+.upload-progress {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 80%;
+    background: rgba(255, 255, 255, 0.3);
+    height: 6px;
+    border-radius: 3px;
+    overflow: hidden;
+    z-index: 2;
+}
+
+.upload-progress-bar {
+    height: 100%;
+    background: var(--interactive-accent);
+    width: 0;
+    transition: width 0.3s ease;
+    display: block;
+}
+
+.upload-progress-text {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: rgba(0, 0, 0, 0.7);
+    color: white;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 12px;
+    z-index: 2;
+}

@@ -185,21 +185,90 @@ export default class MinioUploaderPlugin extends Plugin {
 		if (!file || file && !this.getFileType(file)) return;
 
 		evt.preventDefault();
-		const { endpoint, port, useSSL, bucket } = this.settings
-		const host = `http${useSSL ? 's' : ''}://${endpoint}${port === 443 || port === 80 ? '' : ':' + port}`
-		let replaceText = `[${t('Uploading')}：0%](${file.name})\n`;
-		editor.replaceSelection(replaceText);
+		const { endpoint, port, useSSL, bucket } = this.settings;
+		const host = `http${useSSL ? 's' : ''}://${endpoint}${port === 443 || port === 80 ? '' : ':' + port}`;
 
-		const objectName = await this.minioUploader(file, (process) => {
-			const replaceText2 = `[${t('Uploading')}：${process}%](${file.name})`;
-			this.replaceText(editor, replaceText, replaceText2)
-			replaceText = replaceText2
-		})
-		const baseUrl = `${host}/${bucket}/${objectName}`;
-		const url = this.settings.customDomain 
-			? `${this.settings.customDomain}/${bucket}/${objectName}`
-			: baseUrl;
-		this.replaceText(editor, replaceText, this.wrapFileDependingOnType(this.getFileType(file), url, file.name))
+		// 保存当前光标位置
+		const cursor = editor.getCursor();
+		const startPos = { line: cursor.line, ch: cursor.ch };
+		
+		// 创建初始预览文本
+		let replaceText = `<div class="upload-preview-container"><div class="upload-progress"><div class="upload-progress-bar" style="width: 0%"></div></div><div class="upload-progress-text">0%</div></div>\n`;
+		
+		// 如果是图片，读取并显示预览
+		if (this.getFileType(file) === 'image') {
+			const reader = new FileReader();
+			reader.onload = (e) => {
+				const imgSrc = e.target?.result as string;
+				const newText = `<div class="upload-preview-container"><img src="${imgSrc}"><div class="upload-progress"><div class="upload-progress-bar" style="width: 0%"></div></div><div class="upload-progress-text">0%</div></div>\n`;
+				editor.replaceRange(newText, startPos, {
+					line: startPos.line,
+					ch: startPos.ch + replaceText.length
+				});
+				replaceText = newText;
+			};
+			reader.readAsDataURL(file);
+		}
+		
+		editor.replaceRange(replaceText, startPos);
+		editor.setCursor({line: startPos.line + 1, ch: 0});
+
+		try {
+			const objectName = await this.minioUploader(file, (process) => {
+				// 更新进度条和文本
+				const progressBar = replaceText.replace(/width: \d+%/, `width: ${process}%`);
+				const newText = progressBar.replace(/>\d+%<\/div>$/, `>${process}%</div>`);
+				
+				editor.replaceRange(newText, 
+					startPos,
+					{
+						line: startPos.line,
+						ch: startPos.ch + replaceText.length
+					}
+				);
+				replaceText = newText;
+
+				// 当上传完成时添加completed类
+				if (process === 100) {
+					const completedText = replaceText.replace('upload-preview-container', 'upload-preview-container completed');
+					editor.replaceRange(completedText, 
+						startPos,
+						{
+							line: startPos.line,
+							ch: startPos.ch + replaceText.length
+						}
+					);
+					replaceText = completedText;
+				}
+			});
+
+			const baseUrl = `${host}/${bucket}/${objectName}`;
+			const url = this.settings.customDomain 
+				? `${this.settings.customDomain}/${bucket}/${objectName}`
+				: baseUrl;
+			
+			// 延迟一下替换，让用户能看到100%的状态
+			setTimeout(() => {
+				editor.replaceRange(
+					this.wrapFileDependingOnType(this.getFileType(file), url, file.name),
+					startPos,
+					{
+						line: startPos.line,
+						ch: startPos.ch + replaceText.length
+					}
+				);
+			}, 500);
+		} catch (error) {
+			console.error('Upload failed:', error);
+			editor.replaceRange('', 
+				startPos,
+				{
+					line: startPos.line,
+					ch: startPos.ch + replaceText.length
+				}
+			);
+			new Notice(t('Upload failed'));
+		}
 	}
 
 	genObjectName (file: File) {

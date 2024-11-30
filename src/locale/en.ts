@@ -44,6 +44,7 @@ export default {
 	'Minio gallery': 'Minio gallery',
 	'Loading...': 'Loading...',
 	'Load failed': 'Load failed',
+	'Upload failed': 'Upload failed',
 	'Delete success': 'Delete successfully',
 	'Delete failed': 'Delete failed',
 	'Search by URL...': 'Search by URL...',

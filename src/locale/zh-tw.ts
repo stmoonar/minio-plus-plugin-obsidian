@@ -45,6 +45,7 @@ export default {
 	'Minio gallery': 'Minio 圖庫',
 	'Loading...': '加載中...',
 	'Load failed': '加載失敗',
+	'Upload failed': '上傳失敗',
 	'Delete success': '刪除成功',
 	'Delete failed': '刪除失敗',
 	'Search by URL...': '搜尋 URL...',
