@@ -370,7 +370,7 @@ export default class MinioUploaderPlugin extends Plugin {
 
 	wrapFileDependingOnType(type: string, url: string, name: string) {
 		if (type === 'image') {
-			return `${this.settings.imgPreview ? '!' : ''}[${name}](${url})\n`
+			return `${this.settings.imgPreview ? '!' : ''}[](${url})\n`
 		} else if (type === 'video') {
 			return `${this.settings.videoPreview ? `<video src="${url}" controls></video>` : `[${name}](${url})`}\n`;
 		} else if (type === 'audio') {
