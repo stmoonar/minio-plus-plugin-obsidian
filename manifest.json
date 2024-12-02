@@ -1,7 +1,7 @@
 {
 	"id": "minio-plus",
 	"name": "Minio Plus",
-	"version": "1.0.0",
+	"version": "1.0.2",
 	"minAppVersion": "0.15.0",
 	"description": "Upload and manage files to Minio OSS with ease.",
 	"author": "stmoonar",

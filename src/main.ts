@@ -41,7 +41,7 @@ const DEFAULT_SETTINGS: MinioPluginSettings = {
 	pathRule: 'root',
 }
 
-export default class MinioUploaderPlugin extends Plugin {
+export default class MinioPlusPlugin extends Plugin {
 	settings: MinioPluginSettings;
 	minioClient: Client;
 
@@ -193,14 +193,15 @@ export default class MinioUploaderPlugin extends Plugin {
 		const startPos = { line: cursor.line, ch: cursor.ch };
 		
 		// 创建初始预览文本
-		let replaceText = `<div class="upload-preview-container"><div class="upload-progress"><div class="upload-progress-bar" style="width: 0%"></div></div><div class="upload-progress-text">0%</div></div>\n`;
+		let replaceText = `<div class="upload-preview-container uploading"><div class="upload-progress"><div class="upload-progress-bar" style="width: 0%"></div></div></div>\n`;
 		
 		// 如果是图片，读取并显示预览
 		if (this.getFileType(file) === 'image') {
 			const reader = new FileReader();
+			
 			reader.onload = (e) => {
 				const imgSrc = e.target?.result as string;
-				const newText = `<div class="upload-preview-container"><img src="${imgSrc}"><div class="upload-progress"><div class="upload-progress-bar" style="width: 0%"></div></div><div class="upload-progress-text">0%</div></div>\n`;
+				const newText = `<div class="upload-preview-container uploading"><img src="${imgSrc}"><div class="upload-progress"><div class="upload-progress-bar" style="width: 0%"></div></div></div>\n`;
 				editor.replaceRange(newText, startPos, {
 					line: startPos.line,
 					ch: startPos.ch + replaceText.length
@@ -215,9 +216,8 @@ export default class MinioUploaderPlugin extends Plugin {
 
 		try {
 			const objectName = await this.minioUploader(file, (process) => {
-				// 更新进度条和文本
-				const progressBar = replaceText.replace(/width: \d+%/, `width: ${process}%`);
-				const newText = progressBar.replace(/>\d+%<\/div>$/, `>${process}%</div>`);
+				// 更新进度条
+				const newText = replaceText.replace(/width: \d+%/, `width: ${process}%`);
 				
 				editor.replaceRange(newText, 
 					startPos,
@@ -228,9 +228,9 @@ export default class MinioUploaderPlugin extends Plugin {
 				);
 				replaceText = newText;
 
-				// 当上传完成时添加completed类
+				// 当上传完成时
 				if (process === 100) {
-					const completedText = replaceText.replace('upload-preview-container', 'upload-preview-container completed');
+					const completedText = replaceText.replace('uploading', 'completed');
 					editor.replaceRange(completedText, 
 						startPos,
 						{
@@ -257,7 +257,7 @@ export default class MinioUploaderPlugin extends Plugin {
 						ch: startPos.ch + replaceText.length
 					}
 				);
-			}, 500);
+			}, 200);
 		} catch (error) {
 			console.error('Upload failed:', error);
 			editor.replaceRange('', 
@@ -311,7 +311,6 @@ export default class MinioUploaderPlugin extends Plugin {
 	minioUploader(file: File, progress?: (count: number) => void): Promise<string> {
 		return new Promise((resolve, reject) => {
 			try {
-
 				const objectName = this.genObjectName(file)
 				this.minioClient.presignedPutObject(this.settings.bucket, objectName, 1 * 60 * 60).then(presignedUrl => {
 					const xhr = new XMLHttpRequest();
@@ -330,9 +329,8 @@ export default class MinioUploaderPlugin extends Plugin {
 						}
 					};
 					xhr.open("PUT", presignedUrl, true);
-					const va = mime.getType(objectName.substring(objectName.lastIndexOf('.'))) as string
-					xhr.setRequestHeader('Content-Type', va);
-
+					const contentType = file.type || mime.getType(objectName.substring(objectName.lastIndexOf('.'))) || 'application/octet-stream';
+					xhr.setRequestHeader('Content-Type', contentType);
 					xhr.send(file);
 				}).catch(err => {
 					reject(err)
@@ -344,29 +342,29 @@ export default class MinioUploaderPlugin extends Plugin {
 		})
 	}
 
-	private replaceText(
-		editor: Editor,
-		target: string,
-		replacement: string
-	): void {
-		target = target.trim();
-		const lines = editor.getValue().split("\n");
-		for (let i = 0; i < lines.length; i++) {
-			const ch = lines[i].indexOf(target);
-			if (ch !== -1) {
-				const from = { line: i, ch: ch } as EditorPosition;
-				const to = {
-					line: i,
-					ch: ch + target.length,
-				} as EditorPosition;
-				editor.setCursor(from);
-				editor.replaceRange(replacement, from, to);
-				to.ch = ch + replacement.length;
-				editor.setCursor(to);
-				break;
-			}
-		}
-	}
+	// private replaceText(
+	// 	editor: Editor,
+	// 	target: string,
+	// 	replacement: string
+	// ): void {
+	// 	target = target.trim();
+	// 	const lines = editor.getValue().split("\n");
+	// 	for (let i = 0; i < lines.length; i++) {
+	// 		const ch = lines[i].indexOf(target);
+	// 		if (ch !== -1) {
+	// 			const from = { line: i, ch: ch } as EditorPosition;
+	// 			const to = {
+	// 				line: i,
+	// 				ch: ch + target.length,
+	// 			} as EditorPosition;
+	// 			editor.setCursor(from);
+	// 			editor.replaceRange(replacement, from, to);
+	// 			to.ch = ch + replacement.length;
+	// 			editor.setCursor(to);
+	// 			break;
+	// 		}
+	// 	}
+	// }
 
 	wrapFileDependingOnType(type: string, url: string, name: string) {
 		if (type === 'image') {
@@ -446,9 +444,9 @@ const wrapTextWithPasswordHide = (text: TextComponent) => {
 };
 
 class MinioSettingTab extends PluginSettingTab {
-	plugin: MinioUploaderPlugin;
+	plugin: MinioPlusPlugin;
 
-	constructor(app: App, plugin: MinioUploaderPlugin) {
+	constructor(app: App, plugin: MinioPlusPlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
 	}
