@@ -171,18 +171,18 @@ export default class MinioPlusPlugin extends Plugin {
 		if (evt.defaultPrevented) {
 			return;
 		}
-		let file: any = null;
+		let file: File | null = null;
 
 		// figure out what kind of event we're handling
 		switch (evt.type) {
 			case "paste":
-				file = (evt as ClipboardEvent).clipboardData?.files[0];
+				file = (evt as ClipboardEvent).clipboardData?.files[0] || null;
 				break;
 			case "drop":
-				file = (evt as DragEvent).dataTransfer?.files[0];
+				file = (evt as DragEvent).dataTransfer?.files[0] || null;
 		}
 
-		if (!file || file && !this.getFileType(file)) return;
+		if (!file || !this.getFileType(file)) return;
 
 		evt.preventDefault();
 		const { endpoint, port, useSSL, bucket } = this.settings;
@@ -215,6 +215,14 @@ export default class MinioPlusPlugin extends Plugin {
 		editor.setCursor({line: startPos.line + 1, ch: 0});
 
 		try {
+			if (!file) {
+				throw new Error('No file to upload');
+			}
+
+			// 保存文件信息用于后续处理
+			const fileType = this.getFileType(file);
+			const fileName = file.name;
+
 			const objectName = await this.minioUploader(file, (process) => {
 				// 更新进度条
 				const newText = replaceText.replace(/width: \d+%/, `width: ${process}%`);
@@ -250,7 +258,7 @@ export default class MinioPlusPlugin extends Plugin {
 			// 延迟一下替换，让用户能看到100%的状态
 			setTimeout(() => {
 				editor.replaceRange(
-					this.wrapFileDependingOnType(this.getFileType(file), url, file.name),
+					this.wrapFileDependingOnType(fileType, url, fileName),
 					startPos,
 					{
 						line: startPos.line,

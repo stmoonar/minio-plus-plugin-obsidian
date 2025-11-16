@@ -22,6 +22,17 @@ This repository is forked from [Obsidian Minio Uploader Plugin](https://github.c
   - Video preview
   - Audio preview
   - Document preview (Google Docs/Office Online)
+- Smart gallery optimization:
+  - LRU caching strategy for improved performance
+  - Lazy loading with Intersection Observer
+  - Back to top button
+  - Batch rendering optimization
+  - Memory management and cleanup
+- Enhanced image preview:
+  - Smooth animations with hardware acceleration
+  - Click background to close
+  - ESC key to exit
+  - Optimized drag performance
 
 ![upload](./minio-upload.gif)
 ---
