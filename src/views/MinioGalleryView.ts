@@ -31,8 +31,10 @@ export class MinioGalleryView extends ItemView {
     private intersectionObserver: IntersectionObserver | null = null;
     private imageElements: Set<HTMLImageElement> = new Set();
     private remoteObjects: MinioObject[] = [];
+    private visibleImages: MinioObject[] = [];
     private syncInterval: number | null = null;
     private scrollTimeout: number | null = null;
+    private currentPreviewIndex: number | null = null;
 
     constructor(leaf: WorkspaceLeaf, client: Client, settings: MinioPluginSettings) {
         super(leaf);
@@ -282,15 +284,50 @@ export class MinioGalleryView extends ItemView {
         for (let i = 0; i < objects.length; i += batchSize) {
             const batch = objects.slice(i, i + batchSize);
             await Promise.all(
-                batch.map(obj => this.renderImageItem(container, obj.name))
+                batch.map((obj, idx) => this.renderImageItem(container, obj.name, i + idx))
             );
 
             // 让出UI线程
             await new Promise(resolve => setTimeout(resolve, 10));
         }
+
+        // 保存当前可见的图片列表用于导航
+        this.visibleImages = objects;
     }
 
-    private async renderImageItem(container: HTMLElement, objectName: string) {
+    private async openImagePreview(imageIndex: number, modal?: ImagePreviewModal) {
+        if (imageIndex < 0 || imageIndex >= this.visibleImages.length || this.isLoading) {
+            return;
+        }
+
+        const object = this.visibleImages[imageIndex];
+        const objectUrl = await this.getObjectUrl(object.name);
+
+        // 检查是否只是更新当前预览
+        if (modal) {
+            // 更新预览中的图片，保持预览打开
+            modal.updateImage(objectUrl);
+            this.currentPreviewIndex = imageIndex;
+            return;
+        }
+
+        // 打开新的预览
+        const modalInstance = new ImagePreviewModal(this.app, objectUrl, {
+            onNavigate: (direction: 'prev' | 'next') => {
+                // 使用当前预览索引来计算新索引，而不是闭包中的初始值
+                const currentIndex = this.currentPreviewIndex ?? imageIndex;
+                const newIndex = direction === 'prev' ? currentIndex - 1 : currentIndex + 1;
+                if (newIndex >= 0 && newIndex < this.visibleImages.length) {
+                    this.openImagePreview(newIndex, modalInstance);
+                }
+            }
+        });
+        modalInstance.open();
+
+        this.currentPreviewIndex = imageIndex;
+    }
+
+    private async renderImageItem(container: HTMLElement, objectName: string, imageIndex: number) {
         const objectUrl = await this.getObjectUrl(objectName);
 
         if (this.searchInput.value && !objectUrl.toLowerCase().includes(this.searchInput.value.toLowerCase())) {
@@ -320,11 +357,8 @@ export class MinioGalleryView extends ItemView {
 
         // 添加点击事件打开预览
         img.onclick = () => {
-            // 获取真实的图片URL（从 data-src 属性，这才是实际的图片URL）
-            const currentUrl = img.getAttribute("data-src") || objectUrl;
-            console.log('Opening preview with URL:', currentUrl);
-            const modal = new ImagePreviewModal(this.app, currentUrl);
-            modal.open();
+            // 使用传递的索引打开预览（带导航功能）
+            this.openImagePreview(imageIndex);
         };
 
         const buttonContainer = imgDiv.createEl("div", {
