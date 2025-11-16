@@ -46,6 +46,7 @@ export default {
 	'Loading...': '加載中...',
 	'Load failed': '加載失敗',
 	'Upload failed': '上傳失敗',
+	'Search failed': '搜尋失敗',
 	'Delete success': '刪除成功',
 	'Delete failed': '刪除失敗',
 	'Search by URL...': '搜尋 URL...',
@@ -56,5 +57,6 @@ export default {
 	'Cancel': '取消',
 	'Confirm delete?': '確認刪除該圖片嗎？',
 	'Please configure Minio settings first': '請先配置 Minio 設置',
-	'Invalid regex pattern': '無效的正則表達式'
+	'Invalid regex pattern': '無效的正則表達式',
+	'Open Minio gallery': '開啟Minio圖庫'
 }

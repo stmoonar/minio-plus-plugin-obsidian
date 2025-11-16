@@ -1,50 +1,58 @@
-import { ItemView, WorkspaceLeaf, Notice, setIcon } from "obsidian";
+import { ItemView, WorkspaceLeaf, Notice, setIcon } from 'obsidian';
 import { Client } from 'minio-es';
 import { t } from '../i18n';
-import { MinioPluginSettings } from '../main';
+import { MinioPluginSettings } from '../types/settings';
 import { ImagePreviewModal } from '../modals/ImagePreviewModal';
 import { ConfirmModal } from '../modals/ConfirmModal';
 import { ImageCache } from '../utils/ImageCache';
+import { UrlGenerator } from '../utils/UrlGenerator';
+import { SearchService } from '../services/SearchService';
+import { SyncService } from '../services/SyncService';
+import { ImageGrid } from '../components/ImageGrid';
+import { SearchComponent } from '../components/SearchComponent';
+import { MinioObject, GalleryState } from '../types/gallery';
 
-export const GALLERY_VIEW_TYPE = "minio-gallery-view";
-
-interface FileInputEvent extends Event {
-    target: HTMLInputElement & {
-        files: FileList;
-    };
-}
-
-interface MinioObject {
-    name: string;
-    lastModified?: Date;
-}
+export const GALLERY_VIEW_TYPE = 'minio-gallery-view';
 
 export class MinioGalleryView extends ItemView {
     private client: Client;
     private settings: MinioPluginSettings;
     private container: HTMLElement;
-    private searchInput: HTMLInputElement;
-    private lastLoadTime: number = 0;
-    private isLoading: boolean = false;
     private refreshBtn: HTMLButtonElement;
     private backToTopBtn: HTMLButtonElement | null = null;
-    private intersectionObserver: IntersectionObserver | null = null;
-    private imageElements: Set<HTMLImageElement> = new Set();
-    private remoteObjects: MinioObject[] = [];
-    private visibleImages: MinioObject[] = [];
-    private allImageUrls: Map<string, string> = new Map(); // 存储所有图片的URL，用于搜索
-    private isSearching: boolean = false; // 标记是否处于搜索状态
-    private savedSearchTerm: string = ''; // 保存当前搜索词
     private syncInterval: number | null = null;
     private scrollTimeout: number | null = null;
-    private currentPreviewIndex: number | null = null;
-    private useRegexSearch: boolean = false; // 是否使用正则表达式搜索
-    private regexBtn: HTMLButtonElement | null = null; // 正则表达式切换按钮
+    private lastLoadTime: number = 0;
+
+    // 服务和组件
+    private urlGenerator: UrlGenerator;
+    private searchService: SearchService;
+    private syncService: SyncService;
+    private imageGrid: ImageGrid | null = null;
+    private searchComponent: SearchComponent | null = null;
+
+    // 状态管理
+    private state: GalleryState = {
+        remoteObjects: [],
+        visibleImages: [],
+        isSearching: false,
+        savedSearchTerm: '',
+        useRegexSearch: false,
+        currentPreviewIndex: null,
+        isLoading: false
+    };
 
     constructor(leaf: WorkspaceLeaf, client: Client, settings: MinioPluginSettings) {
         super(leaf);
         this.client = client;
         this.settings = settings;
+        this.initializeServices();
+    }
+
+    private initializeServices(): void {
+        this.urlGenerator = new UrlGenerator(this.settings);
+        this.searchService = new SearchService((objectName) => this.urlGenerator.generateUrl(objectName));
+        this.syncService = new SyncService({ client: this.client, settings: this.settings });
     }
 
     getViewType(): string {
@@ -56,400 +64,190 @@ export class MinioGalleryView extends ItemView {
     }
 
     getIcon(): string {
-        return "image-file";
+        return 'image-file';
     }
 
     async onOpen() {
-        const container = this.containerEl.children[1];
-        if (!(container instanceof HTMLElement)) {
-            throw new Error("Failed to get container element");
-        }
+        const container = this.containerEl.children[1] as HTMLElement;
+        if (!container) throw new Error("Failed to get container element");
+
         this.container = container;
         this.container.empty();
 
-        // 设置 Intersection Observer
-        this.setupIntersectionObserver();
-
-        // 添加顶部工具栏
-        const toolbar = this.container.createEl("div", { cls: "minio-gallery-toolbar" });
-
-        // 添加搜索容器
-        const searchContainer = toolbar.createEl("div", { cls: "search-container" });
-
-        // 创建搜索框容器（用于容纳输入框和内部按钮）
-        const searchInputWrapper = searchContainer.createEl("div", { cls: "search-input-wrapper" });
-
-        // 添加搜索输入框
-        this.searchInput = searchInputWrapper.createEl("input", {
-            cls: "minio-gallery-search",
-            attr: {
-                type: "text",
-                placeholder: t('Search by URL...')
-            }
-        });
-
-        // 在搜索框内部添加正则表达式切换按钮
-        this.regexBtn = searchInputWrapper.createEl("button", {
-            cls: "minio-gallery-icon-btn regex-btn-inline",
-            attr: {
-                title: "Toggle regex search",
-                type: "button"
-            }
-        });
-        setIcon(this.regexBtn, "regex");
-
-        // 添加搜索按钮
-        const searchBtn = searchContainer.createEl("button", { cls: "minio-gallery-icon-btn search-btn" });
-        setIcon(searchBtn, "search");
-
-        // 添加刷新按钮
-        this.refreshBtn = toolbar.createEl("button", { cls: "minio-gallery-icon-btn refresh-btn" });
-        setIcon(this.refreshBtn, "refresh-cw");
-
-        // 绑定事件 - 移除自动搜索，改为手动触发
-        this.searchInput.onkeydown = (e) => {
-            if (e.key === 'Enter') {
-                // 回车键触发搜索
-                this.handleSearch();
-            } else if (e.key === 'Escape') {
-                // ESC键清空搜索框（需要手动重新渲染）
-                if (this.searchInput.value) {
-                    this.searchInput.value = '';
-                }
-            }
-        };
-
-        searchBtn.onclick = () => {
-            this.handleSearch();
-        };
-
-        // 正则表达式切换按钮事件
-        this.regexBtn.onclick = (e) => {
-            e.preventDefault();
-            this.useRegexSearch = !this.useRegexSearch;
-            if (this.useRegexSearch) {
-                this.regexBtn?.addClass("active");
-            } else {
-                this.regexBtn?.removeClass("active");
-            }
-        };
-
-        this.refreshBtn.onclick = () => {
-            if(!this.isLoading) {
-                this.loadGallery(true);
-            }
-        };
-
-        // 开始初始加载
+        this.createToolbar();
         await this.loadGallery();
-
-        // 启动自动同步（每2分钟）
         this.startAutoSync();
-
-        // 添加滚动监听器用于回到顶部按钮
         this.setupScrollListener();
     }
 
-    // 防抖函数
-    private debounce<T extends (...args: any[]) => any>(fn: T, wait: number): (...args: Parameters<T>) => void {
-        let timeout: number | null = null;
-        return (...args: Parameters<T>) => {
-            if (timeout) {
-                clearTimeout(timeout);
+    private createToolbar(): void {
+        const toolbar = this.container.createEl('div', { cls: 'minio-gallery-toolbar' });
+
+        this.searchComponent = new SearchComponent(toolbar, {
+            placeholder: t('Search by URL...'),
+            onSearch: (searchText) => this.handleSearch(searchText),
+            onToggleRegex: (enabled) => {
+                this.state.useRegexSearch = enabled;
             }
-            timeout = window.setTimeout(() => {
-                fn(...args);
-                timeout = null;
-            }, wait);
+        });
+
+        this.refreshBtn = toolbar.createEl('button', { cls: 'minio-gallery-icon-btn refresh-btn' });
+        setIcon(this.refreshBtn, 'refresh-cw');
+        this.refreshBtn.onclick = () => {
+            if (!this.state.isLoading) {
+                this.loadGallery(true);
+            }
         };
     }
 
-    private async loadGallery(forceRefresh = false) {
-        if(this.isLoading) {
-            return;
-        }
+    private async loadGallery(forceRefresh = false): Promise<void> {
+        if (this.state.isLoading) return;
 
         const currentTime = Date.now();
-        if (!forceRefresh && (currentTime - this.lastLoadTime < 60000)) { // 减少到1分钟
-            return;
-        }
+        if (!forceRefresh && (currentTime - this.lastLoadTime < 60000)) return;
 
-        this.isLoading = true;
-        this.refreshBtn?.addClass("loading");
-
+        this.state.isLoading = true;
+        this.refreshBtn?.addClass('loading');
         this.lastLoadTime = currentTime;
 
-        const existingContainer = this.container.querySelector(".minio-gallery-container");
-        if (existingContainer) {
-            // **修复:在移除容器前,先 unobserve 所有图片元素**
-            const oldImgs = existingContainer.querySelectorAll('img');
-            oldImgs.forEach(img => {
-                if (this.intersectionObserver) {
-                    this.intersectionObserver.unobserve(img);
-                }
-            });
-            existingContainer.remove();
-        }
-
-        const loading = this.container.createEl("div", {
-            cls: "minio-loading-spinner"
-        });
+        this.cleanupImageGrid();
+        const loading = this.container.createEl('div', { cls: 'minio-loading-spinner' });
 
         try {
-            const bucket = this.settings.bucket;
-            if (!bucket) {
-                throw new Error("Bucket is not configured");
+            if (!this.settings.bucket) {
+                throw new Error('Bucket is not configured');
             }
 
-            // 智能远程同步
-            await this.syncWithRemote();
+            const { objects } = await this.syncService.sync(this.state.remoteObjects);
+            this.state.remoteObjects = objects;
 
-            const imageContainer = this.container.createEl("div", {
-                cls: "minio-gallery-container"
-            });
-
-            // 过滤图片文件并按修改时间排序
-            const imageObjects = this.remoteObjects
+            const imageObjects = objects
                 .filter(obj => this.isImageFile(obj.name))
-                .sort((a, b) => {
-                    const timeA = a.lastModified?.getTime() || 0;
-                    const timeB = b.lastModified?.getTime() || 0;
-                    return timeB - timeA;
-                });
+                .sort((a, b) => (b.lastModified?.getTime() || 0) - (a.lastModified?.getTime() || 0));
 
-            // 批量渲染图片（提升性能）
-            await this.renderImagesBatch(imageContainer, imageObjects);
+            this.createImageGrid();
+            await this.imageGrid!.renderImages(imageObjects);
+
+            this.state.visibleImages = imageObjects;
+            this.state.isSearching = false;
 
             loading.remove();
-            this.isLoading = false;
-            this.refreshBtn?.removeClass("loading");
-
         } catch (err) {
-            loading.removeClass("minio-loading-spinner");
+            loading.removeClass('minio-loading-spinner');
             loading.setText(t('Load failed'));
             console.error(err);
-            this.isLoading = false;
-            this.refreshBtn?.removeClass("loading");
+        } finally {
+            this.state.isLoading = false;
+            this.refreshBtn?.removeClass('loading');
         }
     }
 
-    private async syncWithRemote(): Promise<void> {
-        try {
-            const remoteObjects = await this.fetchRemoteObjects();
+    private createImageGrid(): void {
+        const gridContainer = this.container.createEl('div', {
+            cls: 'minio-gallery-container'
+        });
 
-            // 检测变更
-            const changes = this.detectChanges(this.remoteObjects, remoteObjects);
-
-            if (changes.hasChanges) {
-                this.remoteObjects = remoteObjects;
-                // 清理已删除文件的缓存
-                changes.deleted.forEach(objectName => {
-                    ImageCache.delete(objectName);
-                });
+        this.imageGrid = new ImageGrid(gridContainer, {
+            getObjectUrl: (objectName) => this.getObjectUrl(objectName),
+            onPreview: (index) => this.openImagePreview(index),
+            onDelete: async (objectName, element) => {
+                await this.handleDelete(objectName, element);
             }
-        } catch (error) {
-            console.error('Remote sync failed:', error);
-            throw error;
-        }
-    }
-
-    private async fetchRemoteObjects(): Promise<MinioObject[]> {
-        return new Promise((resolve, reject) => {
-            const objects: MinioObject[] = [];
-            const stream = this.client.listObjects(this.settings.bucket, '', true);
-
-            stream.on('data', (obj: MinioObject) => {
-                if (obj.name) {
-                    objects.push({
-                        name: obj.name,
-                        lastModified: obj.lastModified
-                    });
-                }
-            });
-
-            stream.on('end', () => {
-                resolve(objects.sort((a, b) =>
-                    (b.lastModified?.getTime() || 0) - (a.lastModified?.getTime() || 0)
-                ));
-            });
-
-            stream.on('error', reject);
         });
     }
 
-    private detectChanges(local: MinioObject[], remote: MinioObject[]): {
-        hasChanges: boolean;
-        added: MinioObject[];
-        deleted: string[];
-        modified: MinioObject[];
-    } {
-        const localMap = new Map(local.map(obj => [obj.name, obj.lastModified]));
-        const remoteMap = new Map(remote.map(obj => [obj.name, obj.lastModified]));
+    private cleanupImageGrid(): void {
+        const existingContainer = this.container.querySelector('.minio-gallery-container');
+        existingContainer?.remove();
 
-        const added: MinioObject[] = [];
-        const deleted: string[] = [];
-        const modified: MinioObject[] = [];
-        let hasChanges = false;
-
-        // 检测新增和修改
-        for (const [name, remoteModified] of remoteMap) {
-            const localModified = localMap.get(name);
-
-            if (!localModified) {
-                added.push(remote.find(obj => obj.name === name)!);
-                hasChanges = true;
-            } else if (remoteModified?.getTime() !== localModified?.getTime()) {
-                modified.push(remote.find(obj => obj.name === name)!);
-                hasChanges = true;
-            }
+        if (this.imageGrid) {
+            this.imageGrid.destroy();
+            this.imageGrid = null;
         }
-
-        // 检测删除
-        for (const name of localMap.keys()) {
-            if (!remoteMap.has(name)) {
-                deleted.push(name);
-                hasChanges = true;
-            }
-        }
-
-        return { hasChanges, added, deleted, modified };
     }
 
-    private async renderImagesBatch(container: HTMLElement, objects: MinioObject[], batchSize = 10): Promise<void> {
-        for (let i = 0; i < objects.length; i += batchSize) {
-            const batch = objects.slice(i, i + batchSize);
-            await Promise.all(
-                batch.map((obj, idx) => this.renderImageItem(container, obj.name, i + idx))
-            );
+    private async handleSearch(searchText: string): Promise<void> {
+        if (this.state.isLoading) return;
 
-            // 让出UI线程
-            await new Promise(resolve => setTimeout(resolve, 10));
+        this.state.isSearching = true;
+        this.state.savedSearchTerm = searchText;
+
+        try {
+            let objectsToRender: MinioObject[];
+
+            if (searchText.trim() === '') {
+                objectsToRender = this.state.remoteObjects.filter(obj => this.isImageFile(obj.name));
+                this.state.isSearching = false;
+                this.state.savedSearchTerm = '';
+            } else {
+                const result = await this.searchService.search(
+                    this.state.remoteObjects,
+                    searchText,
+                    this.state.useRegexSearch
+                );
+                objectsToRender = result.matchedObjects;
+            }
+
+            this.state.visibleImages = objectsToRender;
+
+            this.cleanupImageGrid();
+            this.createImageGrid();
+            await this.imageGrid!.renderImages(objectsToRender);
+        } catch (error) {
+            new Notice(error instanceof Error ? error.message : t('Search failed'));
+            console.error('Search error:', error);
         }
-
-        // 保存当前可见的图片列表用于导航
-        this.visibleImages = objects;
     }
 
-    private async openImagePreview(imageIndex: number, modal?: ImagePreviewModal) {
-        if (imageIndex < 0 || imageIndex >= this.visibleImages.length || this.isLoading) {
+    private async openImagePreview(imageIndex: number, modal?: ImagePreviewModal): Promise<void> {
+        if (imageIndex < 0 || imageIndex >= this.state.visibleImages.length || this.state.isLoading) {
             return;
         }
 
-        const object = this.visibleImages[imageIndex];
+        const object = this.state.visibleImages[imageIndex];
         const objectUrl = await this.getObjectUrl(object.name);
 
-        // 检查是否只是更新当前预览
         if (modal) {
-            // 更新预览中的图片，保持预览打开
             modal.updateImage(objectUrl, object.name);
-            this.currentPreviewIndex = imageIndex;
+            this.state.currentPreviewIndex = imageIndex;
             return;
         }
 
-        // 打开新的预览
         const modalInstance = new ImagePreviewModal(this.app, objectUrl, object.name, {
             onNavigate: (direction: 'prev' | 'next') => {
-                // 使用当前预览索引来计算新索引，而不是闭包中的初始值
-                const currentIndex = this.currentPreviewIndex ?? imageIndex;
+                const currentIndex = this.state.currentPreviewIndex ?? imageIndex;
                 const newIndex = direction === 'prev' ? currentIndex - 1 : currentIndex + 1;
-                if (newIndex >= 0 && newIndex < this.visibleImages.length) {
+                if (newIndex >= 0 && newIndex < this.state.visibleImages.length) {
                     this.openImagePreview(newIndex, modalInstance);
                 }
             }
         });
         modalInstance.open();
 
-        this.currentPreviewIndex = imageIndex;
+        this.state.currentPreviewIndex = imageIndex;
     }
 
-    private async renderImageItem(container: HTMLElement, objectName: string, imageIndex: number) {
-        const objectUrl = await this.getObjectUrl(objectName);
+    private async handleDelete(objectName: string, element: HTMLElement): Promise<void> {
+        const modal = new ConfirmModal(this.app, async () => {
+            try {
+                await this.syncService.deleteObject(objectName);
+                element.remove();
 
-        if (this.searchInput.value && !objectUrl.toLowerCase().includes(this.searchInput.value.toLowerCase())) {
-            return;
-        }
+                this.state.remoteObjects = this.state.remoteObjects.filter(obj => obj.name !== objectName);
+                this.state.visibleImages = this.state.visibleImages.filter(obj => obj.name !== objectName);
 
-        const imgDiv = container.createEl("div", {
-            cls: "minio-gallery-item"
-        });
+                ImageCache.delete(objectName);
 
-        const img = imgDiv.createEl("img", {
-            attr: {
-                "data-src": objectUrl, // 使用 data-src 实现懒加载
-                src: this.getPlaceholderUrl(),
-                loading: "lazy",
-                alt: objectName
+                const { objects } = await this.syncService.sync(this.state.remoteObjects);
+                this.state.remoteObjects = objects;
+
+                new Notice(t('Delete success'));
+            } catch (err) {
+                new Notice(t('Delete failed'));
+                console.error(err);
             }
         });
-
-        // 添加到图片元素集合以便内存管理
-        this.imageElements.add(img);
-
-        // 设置 Intersection Observer - 只在需要懒加载的图片上设置
-        // 避免重复observe已经加载过的图片
-        if (this.intersectionObserver && img.dataset.src) {
-            // 使用 requestIdleCallback 延迟observe操作，避免阻塞UI
-            if ('requestIdleCallback' in window) {
-                requestIdleCallback(() => {
-                    if (this.intersectionObserver && img.dataset.src) {
-                        this.intersectionObserver.observe(img);
-                    }
-                });
-            } else {
-                setTimeout(() => {
-                    if (this.intersectionObserver && img.dataset.src) {
-                        this.intersectionObserver.observe(img);
-                    }
-                }, 0);
-            }
-        }
-
-        // 添加点击事件打开预览
-        img.onclick = () => {
-            // 使用传递的索引打开预览（带导航功能）
-            this.openImagePreview(imageIndex);
-        };
-
-        const buttonContainer = imgDiv.createEl("div", {
-            cls: "minio-gallery-buttons"
-        });
-
-        // 添加复制URL按钮
-        const copyBtn = buttonContainer.createEl("button", {
-            cls: "minio-gallery-icon-btn copy-btn"
-        });
-        setIcon(copyBtn, "copy");
-
-        copyBtn.onclick = async () => {
-            await navigator.clipboard.writeText(objectUrl);
-            new Notice(t('URL copied'));
-        };
-
-        // 添加删除按钮
-        const deleteBtn = buttonContainer.createEl("button", {
-            cls: "minio-gallery-icon-btn delete-btn"
-        });
-        setIcon(deleteBtn, "trash");
-
-        deleteBtn.onclick = async () => {
-            const modal = new ConfirmModal(this.app, async () => {
-                try {
-                    await this.client.removeObject(this.settings.bucket, objectName);
-                    imgDiv.remove();
-                    // 从图片元素集合中移除
-                    this.imageElements.delete(img);
-                    // 清理缓存
-                    ImageCache.delete(objectName);
-                    // 触发同步
-                    await this.syncWithRemote();
-                    new Notice(t('Delete success'));
-                } catch (err) {
-                    new Notice(t('Delete failed'));
-                    console.error(err);
-                }
-            });
-            modal.open();
-        };
+        modal.open();
     }
 
     private isImageFile(filename: string): boolean {
@@ -457,348 +255,38 @@ export class MinioGalleryView extends ItemView {
         return imageExtensions.some(ext => filename.toLowerCase().endsWith(ext));
     }
 
-    private generateUrl(objectName: string): string {
-        const { endpoint, bucket } = this.settings;
-        
-        // 检查自定义域名
-        if (this.settings.customDomain) {
-            return `${this.settings.customDomain}/${bucket}/${objectName}`;
-        }
-        
-        // 检查端口号
-        const portStr = this.settings.port === 443 || this.settings.port === 80 
-            ? '' 
-            : `:${this.settings.port}`;
-        
-        // 生成标准 URL
-        const protocol = this.settings.useSSL ? 'https' : 'http';
-        return `${protocol}://${endpoint}${portStr}/${bucket}/${objectName}`;
-    }
-
     private async getObjectUrl(objectName: string): Promise<string> {
-        // 先检查缓存
         const cachedUrl = await ImageCache.get(objectName);
-        if (cachedUrl) {
-            return cachedUrl;
-        }
+        if (cachedUrl) return cachedUrl;
 
-        const url = this.generateUrl(objectName);
-        // 存入缓存
+        const url = this.urlGenerator.generateUrl(objectName);
         await ImageCache.set(objectName, url);
         return url;
     }
 
-    private async handleSearch() {
-        const searchText = this.searchInput.value.trim();
-        const container = this.container.querySelector('.minio-gallery-container') as HTMLElement;
-
-        if (!container || this.isLoading) {
-            return;
-        }
-
-        // 如果搜索文本为空且之前有搜索过，则恢复到原始状态
-        if (searchText === '') {
-            if (this.isSearching || this.savedSearchTerm !== '') {
-                // 清空搜索状态
-                this.isSearching = false;
-                this.savedSearchTerm = '';
-
-                // **修复:在清空容器前,先 unobserve 所有图片元素**
-                const oldImgs = container.querySelectorAll('img');
-                oldImgs.forEach(img => {
-                    if (this.intersectionObserver) {
-                        this.intersectionObserver.unobserve(img);
-                    }
-                });
-
-                // 移除所有当前显示的图片，重新渲染
-                container.empty();
-                // 不清空imageElements，保留对已创建图片元素的引用
-
-                // 基于全量图片数据重新渲染
-                this.visibleImages = [...this.remoteObjects.filter(obj => this.isImageFile(obj.name))];
-                await this.renderImagesBatch(container, this.visibleImages);
-
-                // 使用requestIdleCallback延迟observe，避免阻塞UI
-                const imgs = container.querySelectorAll('img[data-src]');
-                imgs.forEach(imgEl => {
-                    const img = imgEl as HTMLImageElement;
-                    if ('requestIdleCallback' in window) {
-                        requestIdleCallback(() => {
-                            if (this.intersectionObserver && img.dataset.src) {
-                                this.intersectionObserver.observe(img);
-                            }
-                        });
-                    } else {
-                        setTimeout(() => {
-                            if (this.intersectionObserver && img.dataset.src) {
-                                this.intersectionObserver.observe(img);
-                            }
-                        }, 0);
-                    }
-                });
-            }
-            return;
-        }
-
-        // 执行搜索
-        this.isSearching = true;
-        this.savedSearchTerm = searchText;
-
-        // **修复:在清空容器前,先 unobserve 所有图片元素**
-        const oldImgs = container.querySelectorAll('img');
-        oldImgs.forEach(img => {
-            if (this.intersectionObserver) {
-                this.intersectionObserver.unobserve(img);
-            }
-        });
-
-        // 清空容器，释放内存 - 但不清空imageElements，因为里面可能有有用的引用
-        container.empty();
-
-        // 在所有图片URL中筛选匹配的图片
-        const matchedObjects: MinioObject[] = [];
-
-        // 根据是否启用正则表达式来搜索
-        if (this.useRegexSearch) {
-            // 正则表达式搜索
-            try {
-                // 智能处理简单的通配符模式
-                let regexPattern = searchText;
-                let isWildcard = false;
-
-                // 如果用户输入了类似 *abc* 的简单通配符，转换为正则表达式
-                if (regexPattern.startsWith('*') && regexPattern.endsWith('*') &&
-                    !regexPattern.includes('[') && !regexPattern.includes('(') &&
-                    !regexPattern.includes('?') && !regexPattern.includes('+')) {
-                    const innerPattern = regexPattern.slice(1, -1);
-                    regexPattern = `.*${innerPattern}.*`;
-                    isWildcard = true;
-                } else if (regexPattern.startsWith('*') && !regexPattern.includes('[') &&
-                           !regexPattern.includes('(') && !regexPattern.includes('?') &&
-                           !regexPattern.includes('+')) {
-                    const innerPattern = regexPattern.slice(1);
-                    regexPattern = `${innerPattern}.*`;
-                    isWildcard = true;
-                } else if (regexPattern.endsWith('*') && !regexPattern.includes('[') &&
-                           !regexPattern.includes('(') && !regexPattern.includes('?') &&
-                           !regexPattern.includes('+')) {
-                    const innerPattern = regexPattern.slice(0, -1);
-                    regexPattern = `.*${innerPattern}`;
-                    isWildcard = true;
-                }
-
-                // 调试信息
-                if (isWildcard) {
-                    console.log(`通配符转换: "${searchText}" -> "${regexPattern}"`);
-                }
-
-                const regex = new RegExp(regexPattern, 'i');
-                for (const obj of this.remoteObjects) {
-                    if (!this.isImageFile(obj.name)) continue;
-
-                    const cachedUrl = this.allImageUrls.get(obj.name);
-                    const url = cachedUrl || this.generateUrl(obj.name);
-
-                    if (regex.test(url)) {
-                        matchedObjects.push(obj);
-                        if (!cachedUrl) this.allImageUrls.set(obj.name, url);
-                    }
-                }
-            } catch (error) {
-                // 正则表达式语法错误，显示详细错误信息
-                const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-                new Notice(`正则表达式错误: ${errorMessage}`);
-                console.warn('Invalid regex pattern:', error);
-                this.isSearching = false;
-                this.savedSearchTerm = '';
-                return;
-            }
-        } else {
-            // 普通字符串搜索
-            const lowerSearchText = searchText.toLowerCase();
-            for (const obj of this.remoteObjects) {
-                if (!this.isImageFile(obj.name)) continue;
-
-                const cachedUrl = this.allImageUrls.get(obj.name);
-                const url = cachedUrl || this.generateUrl(obj.name);
-
-                if (url.toLowerCase().includes(lowerSearchText)) {
-                    matchedObjects.push(obj);
-                    if (!cachedUrl) this.allImageUrls.set(obj.name, url);
-                }
-            }
-        }
-
-        // 更新可见图片列表
-        this.visibleImages = matchedObjects;
-
-        // 重新渲染匹配的图片
-        await this.renderImagesBatch(container, matchedObjects);
-
-        // 使用requestIdleCallback延迟observe，避免大量图片同时加载导致卡顿
-        const imgs = container.querySelectorAll('img[data-src]');
-        imgs.forEach(imgEl => {
-            const img = imgEl as HTMLImageElement;
-            if ('requestIdleCallback' in window) {
-                requestIdleCallback(() => {
-                    if (this.intersectionObserver && img.dataset.src) {
-                        this.intersectionObserver.observe(img);
-                    }
-                });
-            } else {
-                setTimeout(() => {
-                    if (this.intersectionObserver && img.dataset.src) {
-                        this.intersectionObserver.observe(img);
-                    }
-                }, 0);
-            }
-        });
-    }
-    
-      private setupIntersectionObserver(): void {
-        this.intersectionObserver = new IntersectionObserver((entries) => {
-            entries.forEach(entry => {
-                if (entry.isIntersecting) {
-                    const img = entry.target as HTMLImageElement;
-                    const src = img.dataset.src;
-
-                    if (src && img.src !== src) {
-                        this.loadImageWithRetry(src, img);
-                        img.removeAttribute('data-src');
-                        // **修复:加载完成后立即 unobserve,避免持续检查已加载的图片**
-                        this.intersectionObserver?.unobserve(img);
-                    }
-                }
-            });
-        }, {
-            rootMargin: '50px'
-        });
-    }
-
-    private async loadImageWithRetry(url: string, img: HTMLImageElement, maxRetries = 3): Promise<void> {
-        for (let attempt = 1; attempt <= maxRetries; attempt++) {
-            try {
-                await this.loadImage(url, img);
-                img.classList.add('loaded');
-                return;
-            } catch (error) {
-                if (attempt === maxRetries) {
-                    img.classList.add('error');
-                    img.src = this.getPlaceholderUrl();
-                    console.error('Image load failed after retries:', url, error);
-                    return;
-                }
-
-                // 指数退避
-                const delay = Math.min(1000 * Math.pow(2, attempt - 1), 3000);
-                await new Promise(resolve => setTimeout(resolve, delay));
-            }
-        }
-    }
-
-    private loadImage(url: string, img: HTMLImageElement): Promise<void> {
-        return new Promise((resolve, reject) => {
-            // 设置超时
-            const timeout = setTimeout(() => {
-                reject(new Error(`Image load timeout: ${url}`));
-            }, 8000);
-
-            img.onload = () => {
-                clearTimeout(timeout);
-                resolve();
-            };
-
-            img.onerror = () => {
-                clearTimeout(timeout);
-                reject(new Error(`Failed to load image: ${url}`));
-            };
-
-            img.src = url;
-        });
-    }
-
-    private getPlaceholderUrl(): string {
-        // 返回一个简单的SVG占位图
-        return 'data:image/svg+xml;base64,' + btoa(`
-            <svg width="100" height="100" xmlns="http://www.w3.org/2000/svg">
-                <rect width="100" height="100" fill="#ccc"/>
-                <text x="50" y="50" text-anchor="middle" dy=".3em" fill="#666" font-size="12">Loading...</text>
-            </svg>
-        `);
-    }
-
-    private updateCacheStatus(): void {
-        const cacheStats = ImageCache.getStats();
-        const cacheStatus = this.container.querySelector('.minio-cache-status');
-        if (cacheStatus) {
-            cacheStatus.setText(`Cache: ${cacheStats.totalSizeMB}MB (${cacheStats.count} items)`);
-        }
-    }
-
     private startAutoSync(): void {
-        // 每2分钟同步一次
         this.syncInterval = window.setInterval(async () => {
             try {
-                await this.syncWithRemote();
+                const { objects } = await this.syncService.sync(this.state.remoteObjects);
+                this.state.remoteObjects = objects;
+
+                if (!this.state.isSearching) {
+                    this.state.visibleImages = objects.filter(obj => this.isImageFile(obj.name));
+                }
             } catch (error) {
                 console.error('Auto sync failed:', error);
             }
         }, 120000);
     }
 
-    private cleanupImageElements(): void {
-        // 清理不可见的图片元素
-        this.imageElements.forEach(img => {
-            if (!img.isConnected) {
-                this.imageElements.delete(img);
-                img.src = ''; // 释放内存
-            }
-        });
-    }
-
-    // 添加清理方法到生命周期
-    async onunload() {
-        // 停止自动同步
-        if (this.syncInterval) {
-            clearInterval(this.syncInterval);
-            this.syncInterval = null;
-        }
-
-        // 清理滚动超时
-        if (this.scrollTimeout) {
-            clearTimeout(this.scrollTimeout);
-            this.scrollTimeout = null;
-        }
-
-        // 清理回到顶部按钮
-        if (this.backToTopBtn) {
-            this.backToTopBtn.remove();
-            this.backToTopBtn = null;
-        }
-
-        // 清理图片元素
-        this.cleanupImageElements();
-        this.imageElements.clear();
-
-        // 断开 Intersection Observer
-        if (this.intersectionObserver) {
-            this.intersectionObserver.disconnect();
-            this.intersectionObserver = null;
-        }
-    }
-
     private setupScrollListener(): void {
-        // 节流函数，优化性能
         const throttledHandleScroll = () => {
-            if (this.scrollTimeout) {
-                return;
-            }
+            if (this.scrollTimeout) return;
 
             this.scrollTimeout = window.setTimeout(() => {
                 const scrollTop = this.container.scrollTop;
                 const containerHeight = this.container.clientHeight;
-                const showThreshold = containerHeight * 0.5; // 滚动超过50%高度时显示
+                const showThreshold = containerHeight * 0.5;
 
                 if (scrollTop > showThreshold) {
                     this.showBackToTopButton();
@@ -807,7 +295,7 @@ export class MinioGalleryView extends ItemView {
                 }
 
                 this.scrollTimeout = null;
-            }, 16); // 约60fps
+            }, 16);
         };
 
         this.container.addEventListener('scroll', throttledHandleScroll, { passive: true });
@@ -815,29 +303,47 @@ export class MinioGalleryView extends ItemView {
 
     private showBackToTopButton(): void {
         if (!this.backToTopBtn) {
-            this.backToTopBtn = this.container.createEl("button", {
-                cls: "minio-back-to-top"
+            this.backToTopBtn = this.container.createEl('button', {
+                cls: 'minio-back-to-top'
             });
-            setIcon(this.backToTopBtn, "chevron-up");
+            setIcon(this.backToTopBtn, 'chevron-up');
 
             this.backToTopBtn.onclick = () => {
-                this.container.scrollTo({
-                    top: 0,
-                    behavior: 'smooth'
-                });
+                this.container.scrollTo({ top: 0, behavior: 'smooth' });
             };
         }
 
-        this.backToTopBtn.classList.add("visible");
+        this.backToTopBtn.classList.add('visible');
     }
 
     private hideBackToTopButton(): void {
-        if (this.backToTopBtn) {
-            this.backToTopBtn.classList.remove("visible");
-        }
+        this.backToTopBtn?.classList.remove('visible');
     }
 
-    async onload() {
+    async onunload(): Promise<void> {
+        if (this.syncInterval) {
+            clearInterval(this.syncInterval);
+            this.syncInterval = null;
+        }
+
+        if (this.scrollTimeout) {
+            clearTimeout(this.scrollTimeout);
+            this.scrollTimeout = null;
+        }
+
+        this.backToTopBtn?.remove();
+        this.backToTopBtn = null;
+
+        this.searchComponent?.destroy();
+        this.searchComponent = null;
+
+        this.imageGrid?.destroy();
+        this.imageGrid = null;
+
+        this.searchService.clearCache();
+    }
+
+    async onload(): Promise<void> {
         await ImageCache.init();
     }
 }

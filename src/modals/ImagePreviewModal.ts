@@ -1,183 +1,272 @@
-import { App, Modal, setIcon } from "obsidian";
+import { App, Modal, setIcon } from 'obsidian';
+import { ImagePreviewOptions } from '../types/gallery';
+
+interface PreviewTheme {
+    background: string;
+    textColor: string;
+    textShadow: string;
+}
 
 export class ImagePreviewModal extends Modal {
     private imageUrl: string;
     private fileName: string;
     private container: HTMLElement;
     private imgElement: HTMLImageElement | null = null;
+    private fileNameElement: HTMLElement | null = null;
     private onNavigate?: (direction: 'prev' | 'next') => void;
     private isUpdating: boolean = false;
-    private isDarkMode: boolean = true;
+    private currentTheme: 'dark' | 'light' = 'dark';
 
-    constructor(app: App, imageUrl: string, fileName: string, options?: {
-        onNavigate?: (direction: 'prev' | 'next') => void
-    }) {
+    // 主题配置
+    private readonly themes: Record<string, PreviewTheme> = {
+        dark: {
+            background: 'var(--minio-preview-overlay-bg)',
+            textColor: 'white',
+            textShadow: '0 1px 3px rgba(0, 0, 0, 0.8)'
+        },
+        light: {
+            background: 'rgba(255, 255, 255, 0.95)',
+            textColor: 'black',
+            textShadow: '0 1px 3px rgba(255, 255, 255, 0.8)'
+        }
+    };
+
+    constructor(
+        app: App,
+        imageUrl: string,
+        fileName: string,
+        options?: ImagePreviewOptions
+    ) {
         super(app);
         this.imageUrl = imageUrl;
         this.fileName = fileName;
         this.onNavigate = options?.onNavigate;
 
-        // 移除Obsidian默认关闭按钮
+        // 初始化时移除默认样式
+        this.setupModalStyle();
+    }
+
+    /**
+     * 设置模态框样式
+     */
+    private setupModalStyle(): void {
         requestAnimationFrame(() => {
-            // 尝试获取关闭按钮
-            const closeBtn = this.modalEl.querySelector('.modal-close-button') as HTMLElement;
-            if (closeBtn) {
-                closeBtn.remove();
-            }
-            // 隐藏整个modalEl的边框和背景
-            this.modalEl.style.border = 'none';
-            this.modalEl.style.background = 'transparent';
-            this.modalEl.style.boxShadow = 'none';
-            this.modalEl.style.padding = '0';
+            const modalEl = this.modalEl;
+            modalEl.style.border = 'none';
+            modalEl.style.background = 'transparent';
+            modalEl.style.boxShadow = 'none';
+            modalEl.style.padding = '0';
+
+            // 移除默认关闭按钮
+            const closeBtn = modalEl.querySelector('.modal-close-button') as HTMLElement;
+            closeBtn?.remove();
         });
     }
 
-    onOpen() {
-        const {contentEl} = this;
+    onOpen(): void {
+        const { contentEl } = this;
         contentEl.empty();
         contentEl.addClass('minio-image-preview-modal-content');
 
+        // 创建主容器
         this.container = contentEl.createDiv({
-            cls: "minio-image-preview-container"
+            cls: 'minio-image-preview-container'
         });
 
-        // 添加控制栏（右上角）
-        const controlBar = this.container.createEl("div", {
-            cls: "minio-preview-control-bar"
+        // 创建控制栏
+        this.createControlBar();
+
+        // 创建图片元素
+        this.createImageElement();
+
+        // 绑定事件
+        this.bindEvents();
+
+        // 显示动画
+        this.showAnimation();
+    }
+
+    /**
+     * 创建控制栏
+     */
+    private createControlBar(): void {
+        const controlBar = this.container.createEl('div', {
+            cls: 'minio-preview-control-bar'
         });
 
-        // 添加背景切换按钮
-        const toggleBgBtn = controlBar.createEl("button", {
-            cls: "minio-preview-toggle-bg-btn"
+        // 主题切换按钮
+        const themeToggleBtn = controlBar.createEl('button', {
+            cls: 'minio-preview-toggle-bg-btn'
         });
-        setIcon(toggleBgBtn, "sun");
-        toggleBgBtn.title = "切换背景颜色";
+        setIcon(themeToggleBtn, this.currentTheme === 'dark' ? 'sun' : 'moon');
+        themeToggleBtn.title = 'Toggle background';
 
-        toggleBgBtn.onclick = (e) => {
+        themeToggleBtn.onclick = (e) => {
             e.stopPropagation();
-            this.toggleBackground();
-            const icon = this.isDarkMode ? "sun" : "moon";
-            setIcon(toggleBgBtn, icon);
+            this.toggleTheme();
+            setIcon(themeToggleBtn, this.currentTheme === 'dark' ? 'sun' : 'moon');
         };
 
-        // 添加文件名（居中显示）
-        const fileNameEl = controlBar.createEl("div", {
-            cls: "minio-preview-file-name",
+        // 文件名显示
+        this.fileNameElement = controlBar.createEl('div', {
+            cls: 'minio-preview-file-name',
             text: this.fileName
         });
 
-        this.imgElement = this.container.createEl("img", {
-            cls: "minio-image-preview",
+        // 应用当前主题
+        this.applyTheme(this.currentTheme);
+    }
+
+    /**
+     * 创建图片元素
+     */
+    private createImageElement(): void {
+        this.imgElement = this.container.createEl('img', {
+            cls: 'minio-image-preview',
             attr: {
                 src: this.imageUrl,
-                alt: "Preview"
+                alt: 'Preview'
             }
         });
 
-        // 阻止图片点击事件冒泡到容器
-        this.imgElement.onclick = (e) => {
-            e.stopPropagation();
-        };
+        // 阻止图片点击事件冒泡
+        this.imgElement.onclick = (e) => e.stopPropagation();
 
-        // 添加错误处理
+        // 错误处理
         this.imgElement.onerror = () => {
             console.error('Failed to load preview image:', this.imageUrl);
+            this.handleImageError();
         };
 
-        // 添加加载成功处理
         this.imgElement.onload = () => {
             console.log('Preview image loaded successfully:', this.imageUrl);
         };
+    }
 
-        // 点击背景关闭预览
-        this.container.onclick = () => {
-            this.close();
-        };
+    /**
+     * 绑定事件
+     */
+    private bindEvents(): void {
+        // 点击背景关闭
+        this.container.onclick = () => this.close();
 
-        // ESC键关闭预览
-        this.scope.register([], 'Escape', () => {
-            this.close();
-        });
+        // 键盘快捷键
+        this.scope.register([], 'Escape', () => this.close());
 
-        // 左右方向键切换图片
         if (this.onNavigate) {
-            // 左箭头 - 上一张
-            this.scope.register([], 'ArrowLeft', () => {
-                this.onNavigate?.('prev');
-            });
-
-            // 右箭头 - 下一张
-            this.scope.register([], 'ArrowRight', () => {
-                this.onNavigate?.('next');
-            });
+            this.scope.register([], 'ArrowLeft', () => this.onNavigate?.('prev'));
+            this.scope.register([], 'ArrowRight', () => this.onNavigate?.('next'));
         }
+    }
 
-        // 触发动画
+    /**
+     * 显示动画
+     */
+    private showAnimation(): void {
         requestAnimationFrame(() => {
             this.container.classList.add('show');
         });
     }
 
-    onClose() {
-        const {contentEl} = this;
-        contentEl.empty();
-        this.imgElement = null;
+    /**
+     * 处理图片加载错误
+     */
+    private handleImageError(): void {
+        if (!this.imgElement || !this.container) return;
+
+        // 创建错误提示元素
+        const errorContainer = this.container.createEl('div', {
+            cls: 'minio-preview-error'
+        });
+
+        errorContainer.innerHTML = `
+            <div class="error-icon">⚠️</div>
+            <div class="error-message">Failed to load image</div>
+            <div class="error-url">${this.imageUrl}</div>
+        `;
+
+        // 隐藏失败的图片
+        this.imgElement.style.display = 'none';
     }
 
-    updateImage(newUrl: string, newFileName?: string): void {
-        if (!this.imgElement) {
-            return;
+    /**
+     * 切换主题
+     */
+    private toggleTheme(): void {
+        this.currentTheme = this.currentTheme === 'dark' ? 'light' : 'dark';
+        this.applyTheme(this.currentTheme);
+    }
+
+    /**
+     * 应用主题
+     */
+    private applyTheme(theme: 'dark' | 'light'): void {
+        const themeConfig = this.themes[theme];
+
+        this.container.style.background = themeConfig.background;
+
+        if (this.fileNameElement) {
+            this.fileNameElement.style.color = themeConfig.textColor;
+            this.fileNameElement.style.textShadow = themeConfig.textShadow;
         }
+    }
+
+    /**
+     * 更新图片
+     */
+    updateImage(newUrl: string, newFileName?: string): void {
+        if (!this.imgElement || this.isUpdating) return;
 
         this.imageUrl = newUrl;
-        if (newFileName) {
-            this.fileName = newFileName;
-            // 更新文件名显示
-            const fileNameEl = this.container.querySelector('.minio-preview-file-name');
-            if (fileNameEl) {
-                fileNameEl.textContent = newFileName;
-            }
-        }
         this.isUpdating = true;
 
-        // 添加加载动画效果
+        // 更新文件名
+        if (newFileName && this.fileNameElement) {
+            this.fileName = newFileName;
+            this.fileNameElement.textContent = newFileName;
+        }
+
+        // 显示加载动画
+        this.animateImageTransition(() => {
+            this.imgElement!.src = newUrl;
+        });
+    }
+
+    /**
+     * 图片切换动画
+     */
+    private animateImageTransition(updateCallback: () => void): void {
+        if (!this.imgElement) return;
+
+        // 设置过渡效果
+        this.imgElement.style.transition = 'opacity 0.2s ease';
         this.imgElement.style.opacity = '0.5';
-        this.imgElement.style.transition = 'opacity 0.2s ease, transform 0.2s ease';
 
-        // 更新图片
-        this.imgElement.src = newUrl;
+        // 执行更新
+        updateCallback();
 
-        // 图片加载完成后恢复透明度
+        // 恢复透明度
         this.imgElement.onload = () => {
-            this.imgElement!.style.opacity = '1';
-            this.isUpdating = false;
-            console.log('Preview image updated successfully:', newUrl);
+            if (this.imgElement) {
+                this.imgElement.style.opacity = '1';
+                this.isUpdating = false;
+            }
         };
 
         this.imgElement.onerror = () => {
-            this.imgElement!.style.opacity = '1';
-            this.isUpdating = false;
-            console.error('Failed to update preview image:', newUrl);
+            if (this.imgElement) {
+                this.imgElement.style.opacity = '1';
+                this.isUpdating = false;
+                this.handleImageError();
+            }
         };
     }
 
-    toggleBackground(): void {
-        this.isDarkMode = !this.isDarkMode;
-
-        if (this.isDarkMode) {
-            this.container.style.background = 'var(--minio-preview-overlay-bg)';
-        } else {
-            this.container.style.background = 'rgba(255, 255, 255, 0.95)';
-        }
-
-        // 同时更新文件名字体颜色
-        const fileNameEl = this.container.querySelector('.minio-preview-file-name') as HTMLElement;
-        if (fileNameEl) {
-            fileNameEl.style.color = this.isDarkMode ? 'white' : 'black';
-            // 同时更新文字阴影，确保在白色背景下也能看清
-            fileNameEl.style.textShadow = this.isDarkMode
-                ? '0 1px 3px rgba(0, 0, 0, 0.8)'
-                : '0 1px 3px rgba(255, 255, 255, 0.8)';
-        }
+    onClose(): void {
+        const { contentEl } = this;
+        contentEl.empty();
+        this.imgElement = null;
+        this.fileNameElement = null;
+        // container 不能设置为 null，因为它被其他地方使用
     }
 }

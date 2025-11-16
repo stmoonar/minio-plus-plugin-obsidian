@@ -45,16 +45,18 @@ export default {
 	'Loading...': 'Loading...',
 	'Load failed': 'Load failed',
 	'Upload failed': 'Upload failed',
+	'Search failed': 'Search failed',
 	'Delete success': 'Delete successfully',
 	'Delete failed': 'Delete failed',
 	'Search by URL...': 'Search by URL...',
+	'Open Minio gallery': 'Open Minio gallery',
+	'Please configure Minio settings first': 'Please configure Minio settings first',
+	'URL copied': 'URL copied',
+	'Confirm delete?': 'Confirm delete?',
 	'Refresh': 'Refresh',
 	'Copy URL': 'Copy URL',
-	'URL copied': 'URL copied to clipboard',
 	'Delete': 'Delete',
 	'Cancel': 'Cancel',
-	'Confirm delete?': 'Are you sure you want to delete this image?',
-	'Please configure Minio settings first': 'Please configure Minio settings first',
 	'Invalid regex pattern': 'Invalid regex pattern'
 }
 
