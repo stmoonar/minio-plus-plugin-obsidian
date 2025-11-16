@@ -1,4 +1,4 @@
-import { App, Editor, EditorPosition, Notice, Plugin, PluginSettingTab, Setting, TextComponent, setIcon } from 'obsidian';
+import { App, Editor, Notice, Plugin, PluginSettingTab, Setting, TextComponent, setIcon } from 'obsidian';
 import { Client } from 'minio-es';
 import { moment } from 'obsidian';
 import mime from 'mime';
@@ -412,22 +412,6 @@ export default class MinioPlusPlugin extends Plugin {
 		await this.saveData(this.settings);
 	}
 }
-
-// class SampleModal extends Modal {
-// 	constructor(app: App) {
-// 		super(app);
-// 	}
-
-// 	onOpen() {
-// 		const { contentEl } = this;
-// 		contentEl.setText('Woah!');
-// 	}
-
-// 	onClose() {
-// 		const { contentEl } = this;
-// 		contentEl.empty();
-// 	}
-// }
 
 const wrapTextWithPasswordHide = (text: TextComponent) => {
 	const hider = text.inputEl.insertAdjacentElement("beforebegin", createSpan());

@@ -86,9 +86,16 @@ export class MinioGalleryView extends ItemView {
         this.refreshBtn = toolbar.createEl("button", { cls: "minio-gallery-icon-btn refresh-btn" });
         setIcon(this.refreshBtn, "refresh-cw");
 
-        // 绑定事件
+        // 绑定事件 - 使用防抖优化搜索性能
+        const debouncedSearch = this.debounce(() => this.handleSearch(), 300);
+        this.searchInput.oninput = debouncedSearch;
+
         this.searchInput.onkeydown = (e) => {
             if (e.key === 'Enter') {
+                // 回车键立即搜索，无需等待防抖
+                if (this.searchInput.oninput) {
+                    this.searchInput.oninput(null as any);
+                }
                 this.handleSearch();
             }
         };
@@ -111,6 +118,20 @@ export class MinioGalleryView extends ItemView {
 
         // 添加滚动监听器用于回到顶部按钮
         this.setupScrollListener();
+    }
+
+    // 防抖函数
+    private debounce<T extends (...args: any[]) => any>(fn: T, wait: number): (...args: Parameters<T>) => void {
+        let timeout: number | null = null;
+        return (...args: Parameters<T>) => {
+            if (timeout) {
+                clearTimeout(timeout);
+            }
+            timeout = window.setTimeout(() => {
+                fn(...args);
+                timeout = null;
+            }, wait);
+        };
     }
 
     private async loadGallery(forceRefresh = false) {
