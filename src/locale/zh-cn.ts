@@ -55,5 +55,6 @@ export default {
 	'Delete': '删除',
 	'Cancel': '取消',
 	'Confirm delete?': '确认删除该图片吗？',
-	'Please configure Minio settings first': '请先配置 Minio 设置'
+	'Please configure Minio settings first': '请先配置 Minio 设置',
+	'Invalid regex pattern': '无效的正则表达式'
 }

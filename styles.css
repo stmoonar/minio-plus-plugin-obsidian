@@ -482,9 +482,17 @@ If your plugin does not need CSS, delete this file.
     position: relative;
 }
 
+.search-input-wrapper {
+    display: flex;
+    align-items: center;
+    position: relative;
+    flex: 1;
+}
+
 .search-container .minio-gallery-search {
     flex: 1;
     padding: var(--minio-spacing-sm) var(--minio-spacing-md);
+    padding-right: 40px; /* 为内部按钮留出更多空间 */
     border: 2px solid transparent;
     border-radius: var(--minio-border-radius-lg);
     background: var(--background-primary);
@@ -506,6 +514,38 @@ If your plugin does not need CSS, delete this file.
     opacity: 0.7;
 }
 
+/* 内联正则按钮 - 在搜索框内 */
+.regex-btn-inline {
+    position: absolute;
+    right: 1px; /* 与搜索框右边界重合 */
+    top: 1px;
+    bottom: 1px;
+    background: transparent;
+    color: var(--text-muted);
+    min-width: 24px;
+    height: auto;
+    cursor: pointer;
+    border: none;
+    transition: all var(--minio-transition-duration) ease;
+    padding: var(--minio-spacing-xs) 6px;
+    border-top-right-radius: var(--minio-border-radius-lg);
+    border-bottom-right-radius: var(--minio-border-radius-lg);
+    border-left: 1px solid transparent;
+}
+
+.regex-btn-inline:hover {
+    color: var(--text-normal);
+    background: var(--background-modifier-hover);
+    border-left-color: var(--background-modifier-border);
+}
+
+.regex-btn-inline.active {
+    color: var(--text-normal);
+    background: var(--background-modifier-hover);
+    border-left-color: var(--background-modifier-border);
+}
+
+/* 外部搜索按钮 */
 .search-container .search-btn {
     background: var(--interactive-accent);
     color: var(--text-on-accent);

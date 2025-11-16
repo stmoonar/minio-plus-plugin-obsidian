@@ -38,6 +38,8 @@ export class MinioGalleryView extends ItemView {
     private syncInterval: number | null = null;
     private scrollTimeout: number | null = null;
     private currentPreviewIndex: number | null = null;
+    private useRegexSearch: boolean = false; // 是否使用正则表达式搜索
+    private regexBtn: HTMLButtonElement | null = null; // 正则表达式切换按钮
 
     constructor(leaf: WorkspaceLeaf, client: Client, settings: MinioPluginSettings) {
         super(leaf);
@@ -74,14 +76,27 @@ export class MinioGalleryView extends ItemView {
         // 添加搜索容器
         const searchContainer = toolbar.createEl("div", { cls: "search-container" });
 
+        // 创建搜索框容器（用于容纳输入框和内部按钮）
+        const searchInputWrapper = searchContainer.createEl("div", { cls: "search-input-wrapper" });
+
         // 添加搜索输入框
-        this.searchInput = searchContainer.createEl("input", {
+        this.searchInput = searchInputWrapper.createEl("input", {
             cls: "minio-gallery-search",
             attr: {
                 type: "text",
                 placeholder: t('Search by URL...')
             }
         });
+
+        // 在搜索框内部添加正则表达式切换按钮
+        this.regexBtn = searchInputWrapper.createEl("button", {
+            cls: "minio-gallery-icon-btn regex-btn-inline",
+            attr: {
+                title: "Toggle regex search",
+                type: "button"
+            }
+        });
+        setIcon(this.regexBtn, "regex");
 
         // 添加搜索按钮
         const searchBtn = searchContainer.createEl("button", { cls: "minio-gallery-icon-btn search-btn" });
@@ -106,6 +121,17 @@ export class MinioGalleryView extends ItemView {
 
         searchBtn.onclick = () => {
             this.handleSearch();
+        };
+
+        // 正则表达式切换按钮事件
+        this.regexBtn.onclick = (e) => {
+            e.preventDefault();
+            this.useRegexSearch = !this.useRegexSearch;
+            if (this.useRegexSearch) {
+                this.regexBtn?.addClass("active");
+            } else {
+                this.regexBtn?.removeClass("active");
+            }
         };
 
         this.refreshBtn.onclick = () => {
@@ -155,6 +181,13 @@ export class MinioGalleryView extends ItemView {
 
         const existingContainer = this.container.querySelector(".minio-gallery-container");
         if (existingContainer) {
+            // **修复:在移除容器前,先 unobserve 所有图片元素**
+            const oldImgs = existingContainer.querySelectorAll('img');
+            oldImgs.forEach(img => {
+                if (this.intersectionObserver) {
+                    this.intersectionObserver.unobserve(img);
+                }
+            });
             existingContainer.remove();
         }
 
@@ -470,6 +503,14 @@ export class MinioGalleryView extends ItemView {
                 this.isSearching = false;
                 this.savedSearchTerm = '';
 
+                // **修复:在清空容器前,先 unobserve 所有图片元素**
+                const oldImgs = container.querySelectorAll('img');
+                oldImgs.forEach(img => {
+                    if (this.intersectionObserver) {
+                        this.intersectionObserver.unobserve(img);
+                    }
+                });
+
                 // 移除所有当前显示的图片，重新渲染
                 container.empty();
                 // 不清空imageElements，保留对已创建图片元素的引用
@@ -501,116 +542,118 @@ export class MinioGalleryView extends ItemView {
         }
 
         // 执行搜索
-        try {
-            // 尝试编译为正则表达式
-            const regex = new RegExp(searchText, 'i'); // 'i' 表示不区分大小写
+        this.isSearching = true;
+        this.savedSearchTerm = searchText;
 
-            this.isSearching = true;
-            this.savedSearchTerm = searchText;
-
-            // 清空容器，释放内存 - 但不清空imageElements，因为里面可能有有用的引用
-            container.empty();
-            // 不清空imageElements，保留对已创建图片元素的引用
-            // 这可以帮助避免重复创建相同的图片元素
-
-            // 在所有图片URL中筛选匹配的图片
-            const matchedObjects: MinioObject[] = [];
-
-            for (const obj of this.remoteObjects) {
-                if (!this.isImageFile(obj.name)) {
-                    continue;
-                }
-
-                // 使用保存的URL或生成新的URL
-                const cachedUrl = this.allImageUrls.get(obj.name);
-                const url = cachedUrl || this.generateUrl(obj.name);
-
-                // 如果找到缓存URL，直接使用；否则存储新URL
-                if (cachedUrl) {
-                    if (regex.test(cachedUrl)) {
-                        matchedObjects.push(obj);
-                    }
-                } else if (regex.test(url)) {
-                    matchedObjects.push(obj);
-                    this.allImageUrls.set(obj.name, url);
-                }
+        // **修复:在清空容器前,先 unobserve 所有图片元素**
+        const oldImgs = container.querySelectorAll('img');
+        oldImgs.forEach(img => {
+            if (this.intersectionObserver) {
+                this.intersectionObserver.unobserve(img);
             }
+        });
 
-            // 更新可见图片列表
-            this.visibleImages = matchedObjects;
+        // 清空容器，释放内存 - 但不清空imageElements，因为里面可能有有用的引用
+        container.empty();
 
-            // 重新渲染匹配的图片
-            await this.renderImagesBatch(container, matchedObjects);
+        // 在所有图片URL中筛选匹配的图片
+        const matchedObjects: MinioObject[] = [];
 
-            // 使用requestIdleCallback延迟observe，避免大量图片同时加载导致卡顿
-            const imgs = container.querySelectorAll('img[data-src]');
-            imgs.forEach(imgEl => {
-                const img = imgEl as HTMLImageElement;
-                if ('requestIdleCallback' in window) {
-                    requestIdleCallback(() => {
-                        if (this.intersectionObserver && img.dataset.src) {
-                            this.intersectionObserver.observe(img);
-                        }
-                    });
-                } else {
-                    setTimeout(() => {
-                        if (this.intersectionObserver && img.dataset.src) {
-                            this.intersectionObserver.observe(img);
-                        }
-                    }, 0);
+        // 根据是否启用正则表达式来搜索
+        if (this.useRegexSearch) {
+            // 正则表达式搜索
+            try {
+                // 智能处理简单的通配符模式
+                let regexPattern = searchText;
+                let isWildcard = false;
+
+                // 如果用户输入了类似 *abc* 的简单通配符，转换为正则表达式
+                if (regexPattern.startsWith('*') && regexPattern.endsWith('*') &&
+                    !regexPattern.includes('[') && !regexPattern.includes('(') &&
+                    !regexPattern.includes('?') && !regexPattern.includes('+')) {
+                    const innerPattern = regexPattern.slice(1, -1);
+                    regexPattern = `.*${innerPattern}.*`;
+                    isWildcard = true;
+                } else if (regexPattern.startsWith('*') && !regexPattern.includes('[') &&
+                           !regexPattern.includes('(') && !regexPattern.includes('?') &&
+                           !regexPattern.includes('+')) {
+                    const innerPattern = regexPattern.slice(1);
+                    regexPattern = `${innerPattern}.*`;
+                    isWildcard = true;
+                } else if (regexPattern.endsWith('*') && !regexPattern.includes('[') &&
+                           !regexPattern.includes('(') && !regexPattern.includes('?') &&
+                           !regexPattern.includes('+')) {
+                    const innerPattern = regexPattern.slice(0, -1);
+                    regexPattern = `.*${innerPattern}`;
+                    isWildcard = true;
                 }
-            });
 
-        } catch (error) {
-            // 正则表达式语法错误，回退到普通字符串匹配
-            console.warn('Invalid regex, falling back to string search:', error);
+                // 调试信息
+                if (isWildcard) {
+                    console.log(`通配符转换: "${searchText}" -> "${regexPattern}"`);
+                }
 
+                const regex = new RegExp(regexPattern, 'i');
+                for (const obj of this.remoteObjects) {
+                    if (!this.isImageFile(obj.name)) continue;
+
+                    const cachedUrl = this.allImageUrls.get(obj.name);
+                    const url = cachedUrl || this.generateUrl(obj.name);
+
+                    if (regex.test(url)) {
+                        matchedObjects.push(obj);
+                        if (!cachedUrl) this.allImageUrls.set(obj.name, url);
+                    }
+                }
+            } catch (error) {
+                // 正则表达式语法错误，显示详细错误信息
+                const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                new Notice(`正则表达式错误: ${errorMessage}`);
+                console.warn('Invalid regex pattern:', error);
+                this.isSearching = false;
+                this.savedSearchTerm = '';
+                return;
+            }
+        } else {
+            // 普通字符串搜索
             const lowerSearchText = searchText.toLowerCase();
-            const matchedObjects: MinioObject[] = [];
-
             for (const obj of this.remoteObjects) {
-                if (!this.isImageFile(obj.name)) {
-                    continue;
-                }
+                if (!this.isImageFile(obj.name)) continue;
 
                 const cachedUrl = this.allImageUrls.get(obj.name);
                 const url = cachedUrl || this.generateUrl(obj.name);
 
-                if (cachedUrl) {
-                    if (cachedUrl.toLowerCase().includes(lowerSearchText)) {
-                        matchedObjects.push(obj);
-                    }
-                } else if (url.toLowerCase().includes(lowerSearchText)) {
+                if (url.toLowerCase().includes(lowerSearchText)) {
                     matchedObjects.push(obj);
-                    this.allImageUrls.set(obj.name, url);
+                    if (!cachedUrl) this.allImageUrls.set(obj.name, url);
                 }
             }
-
-            this.visibleImages = matchedObjects;
-            container.empty();
-            // 不清空imageElements，保留对已创建图片元素的引用
-
-            await this.renderImagesBatch(container, matchedObjects);
-
-            // 使用requestIdleCallback延迟observe，避免大量图片同时加载导致卡顿
-            const imgs = container.querySelectorAll('img[data-src]');
-            imgs.forEach(imgEl => {
-                const img = imgEl as HTMLImageElement;
-                if ('requestIdleCallback' in window) {
-                    requestIdleCallback(() => {
-                        if (this.intersectionObserver && img.dataset.src) {
-                            this.intersectionObserver.observe(img);
-                        }
-                    });
-                } else {
-                    setTimeout(() => {
-                        if (this.intersectionObserver && img.dataset.src) {
-                            this.intersectionObserver.observe(img);
-                        }
-                    }, 0);
-                }
-            });
         }
+
+        // 更新可见图片列表
+        this.visibleImages = matchedObjects;
+
+        // 重新渲染匹配的图片
+        await this.renderImagesBatch(container, matchedObjects);
+
+        // 使用requestIdleCallback延迟observe，避免大量图片同时加载导致卡顿
+        const imgs = container.querySelectorAll('img[data-src]');
+        imgs.forEach(imgEl => {
+            const img = imgEl as HTMLImageElement;
+            if ('requestIdleCallback' in window) {
+                requestIdleCallback(() => {
+                    if (this.intersectionObserver && img.dataset.src) {
+                        this.intersectionObserver.observe(img);
+                    }
+                });
+            } else {
+                setTimeout(() => {
+                    if (this.intersectionObserver && img.dataset.src) {
+                        this.intersectionObserver.observe(img);
+                    }
+                }, 0);
+            }
+        });
     }
     
       private setupIntersectionObserver(): void {
@@ -623,6 +666,8 @@ export class MinioGalleryView extends ItemView {
                     if (src && img.src !== src) {
                         this.loadImageWithRetry(src, img);
                         img.removeAttribute('data-src');
+                        // **修复:加载完成后立即 unobserve,避免持续检查已加载的图片**
+                        this.intersectionObserver?.unobserve(img);
                     }
                 }
             });
