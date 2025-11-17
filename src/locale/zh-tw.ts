@@ -58,5 +58,6 @@ export default {
 	'Confirm delete?': '確認刪除該圖片嗎？',
 	'Please configure Minio settings first': '請先配置 Minio 設置',
 	'Invalid regex pattern': '無效的正則表達式',
-	'Open Minio gallery': '開啟Minio圖庫'
+	'Open Minio gallery': '開啟Minio圖庫',
+	"Toggle regex search": "切換正則搜尋",
 }

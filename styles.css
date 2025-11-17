@@ -92,16 +92,18 @@ If your plugin does not need CSS, delete this file.
     position: relative;
     width: 100%;
     aspect-ratio: 1;
+
     /* 对不支持 aspect-ratio 的浏览器使用回退方案 */
     @supports not (aspect-ratio: 1) {
         padding-top: 100%;
     }
+
     border-radius: var(--minio-border-radius);
     overflow: hidden;
     cursor: pointer;
     transition: transform var(--minio-transition-duration-fast) ease,
-                box-shadow var(--minio-transition-duration-fast) ease,
-                filter var(--minio-transition-duration-fast) ease;
+    box-shadow var(--minio-transition-duration-fast) ease,
+    filter var(--minio-transition-duration-fast) ease;
     /* 优化性能 */
     contain: layout paint;
     will-change: transform;
@@ -123,7 +125,7 @@ If your plugin does not need CSS, delete this file.
     background: var(--background-secondary);
     opacity: 0;
     transition: opacity 0.2s ease-out,
-                transform 0.15s ease-out;
+        transform 0.15s ease-out;
     display: block;
     /* 启用硬件加速 */
     transform: translateZ(0);
@@ -217,7 +219,9 @@ If your plugin does not need CSS, delete this file.
 }
 
 @keyframes minio-spin {
-    to { transform: rotate(360deg); }
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 /* Empty State - 空状态设计 */
@@ -272,9 +276,19 @@ If your plugin does not need CSS, delete this file.
 }
 
 @keyframes minio-float {
-    0%, 100% { transform: translateY(0) translateX(0); }
-    25% { transform: translateY(-10px) translateX(5px); }
-    75% { transform: translateY(5px) translateX(-5px); }
+
+    0%,
+    100% {
+        transform: translateY(0) translateX(0);
+    }
+
+    25% {
+        transform: translateY(-10px) translateX(5px);
+    }
+
+    75% {
+        transform: translateY(5px) translateX(-5px);
+    }
 }
 
 .minio-gallery-icon-btn.loading {
@@ -491,58 +505,72 @@ If your plugin does not need CSS, delete this file.
 
 .search-container .minio-gallery-search {
     flex: 1;
-    padding: var(--minio-spacing-sm) var(--minio-spacing-md);
-    padding-right: 40px; /* 为内部按钮留出更多空间 */
-    border: 2px solid transparent;
-    border-radius: var(--minio-border-radius-lg);
+    padding: 6px 10px;
+    padding-right: 36px;
+    /* 为内部按钮留出空间 */
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
     background: var(--background-primary);
     color: var(--text-normal);
     font-size: 14px;
-    transition: all var(--minio-transition-duration) ease;
+    transition: border-color 0.15s ease;
     outline: none;
-    box-shadow: var(--minio-shadow);
+    height: 32px;
 }
 
 .search-container .minio-gallery-search:focus {
-    border-color: var(--minio-primary);
-    box-shadow: 0 0 0 3px rgba(var(--interactive-accent-rgb), 0.1), var(--minio-shadow);
-    transform: translateY(-1px);
+    border-color: var(--background-modifier-border-focus);
 }
 
 .search-container .minio-gallery-search::placeholder {
     color: var(--text-faint);
-    opacity: 0.7;
 }
 
-/* 内联正则按钮 - 在搜索框内 */
+/* 内联正则按钮 - 在搜索框内，模仿 VSCode 原生样式 */
 .regex-btn-inline {
     position: absolute;
-    right: 1px; /* 与搜索框右边界重合 */
-    top: 1px;
-    bottom: 1px;
-    background: transparent;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
     color: var(--text-muted);
     min-width: 24px;
-    height: auto;
+    min-height: 24px;
+    width: 24px;
+    height: 24px;
+    padding: 0;
     cursor: pointer;
+    border-radius: 4px;
+    transition: background-color 0.1s ease, color 0.1s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.8;
+}
+
+.search-input-wrapper .minio-gallery-icon-btn.regex-btn-inline {
     border: none;
-    transition: all var(--minio-transition-duration) ease;
-    padding: var(--minio-spacing-xs) 6px;
-    border-top-right-radius: var(--minio-border-radius-lg);
-    border-bottom-right-radius: var(--minio-border-radius-lg);
-    border-left: 1px solid transparent;
+    border-color: transparent;
+    box-shadow: none;
+    outline: none;
+    appearance: none;
 }
 
 .regex-btn-inline:hover {
-    color: var(--text-normal);
     background: var(--background-modifier-hover);
-    border-left-color: var(--background-modifier-border);
+    color: var(--text-normal);
+    opacity: 1;
 }
 
 .regex-btn-inline.active {
-    color: var(--text-normal);
+    background: none;
+    color: var(--interactive-accent);
+    opacity: 1;
+}
+
+.regex-btn-inline.active:hover {
     background: var(--background-modifier-hover);
-    border-left-color: var(--background-modifier-border);
+    color: var(--interactive-accent);
 }
 
 /* 外部搜索按钮 */
@@ -597,8 +625,15 @@ If your plugin does not need CSS, delete this file.
 }
 
 @keyframes minio-pulse {
-    0%, 100% { opacity: 0.6; }
-    50% { opacity: 1; }
+
+    0%,
+    100% {
+        opacity: 0.6;
+    }
+
+    50% {
+        opacity: 1;
+    }
 }
 
 /* Back to Top Button */
