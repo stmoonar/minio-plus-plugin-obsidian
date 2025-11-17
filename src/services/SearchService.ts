@@ -1,5 +1,7 @@
 import { MinioObject, SearchResult } from '../types/gallery';
 import { t } from '../i18n';
+import { isImageFile } from '../utils/FileUtils';
+import { handleError } from '../utils/ErrorHandler';
 
 export class SearchService {
     private allImageUrls: Map<string, string> = new Map();
@@ -52,7 +54,7 @@ export class SearchService {
             const regex = new RegExp(regexPattern, 'i');
 
             for (const obj of objects) {
-                if (!this.isImageFile(obj.name)) continue;
+                if (!isImageFile(obj.name)) continue;
 
                 const cachedUrl = this.allImageUrls.get(obj.name);
                 const url = cachedUrl || this.generateUrl(obj.name);
@@ -65,6 +67,12 @@ export class SearchService {
                 }
             }
         } catch (error) {
+            handleError(error, {
+                operation: 'RegexSearch',
+                additionalInfo: {
+                    pattern: searchText
+                }
+            });
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
             throw new Error(`${t('Invalid regex pattern')}: ${errorMessage}`);
         }
@@ -80,7 +88,7 @@ export class SearchService {
         const lowerSearchText = searchText.toLowerCase();
 
         for (const obj of objects) {
-            if (!this.isImageFile(obj.name)) continue;
+            if (!isImageFile(obj.name)) continue;
 
             const cachedUrl = this.allImageUrls.get(obj.name);
             const url = cachedUrl || this.generateUrl(obj.name);
@@ -119,14 +127,7 @@ export class SearchService {
         return pattern;
     }
 
-    /**
-     * 检查是否为图片文件
-     */
-    private isImageFile(filename: string): boolean {
-        const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
-        return imageExtensions.some(ext => filename.toLowerCase().endsWith(ext));
-    }
-
+    
     /**
      * 清空URL缓存
      */

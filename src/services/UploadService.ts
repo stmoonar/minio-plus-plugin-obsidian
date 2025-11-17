@@ -3,6 +3,7 @@ import { MinioPluginSettings } from '../types/settings';
 import { Notice } from 'obsidian';
 import { t } from '../i18n';
 import mime from 'mime';
+import { handleError, handleNetworkError } from '../utils/ErrorHandler';
 
 export interface UploadProgress {
     loaded: number;
@@ -15,6 +16,57 @@ export class UploadService {
         private client: Client,
         private settings: MinioPluginSettings
     ) {}
+
+    /**
+     * 验证自定义域名格式
+     */
+    private validateCustomDomain(domain: string): { valid: boolean; error?: string } {
+        try {
+            // 添加协议前缀（如果没有的话）
+            let urlToTest = domain;
+            if (!/^https?:\/\//i.test(domain)) {
+                urlToTest = `https://${domain}`;
+            }
+
+            const url = new URL(urlToTest);
+
+            // 检查协议
+            if (!['http:', 'https:'].includes(url.protocol)) {
+                return { valid: false, error: 'Custom domain must use HTTP or HTTPS protocol' };
+            }
+
+            // 检查主机名
+            if (!url.hostname) {
+                return { valid: false, error: 'Invalid hostname in custom domain' };
+            }
+
+            // 检查是否包含路径（自定义域名应该只包含主机名）
+            if (url.pathname !== '/' && url.pathname !== '') {
+                return { valid: false, error: 'Custom domain should not include path' };
+            }
+
+            return { valid: true };
+        } catch (error) {
+            return { valid: false, error: 'Invalid custom domain format' };
+        }
+    }
+
+    /**
+     * 标准化自定义域名
+     */
+    private normalizeCustomDomain(domain: string): string {
+        let normalized = domain.trim();
+
+        // 移除末尾的斜杠
+        normalized = normalized.replace(/\/+$/, '');
+
+        // 如果没有协议，使用 https
+        if (!/^https?:\/\//i.test(normalized)) {
+            normalized = `https://${normalized}`;
+        }
+
+        return normalized;
+    }
 
     /**
      * 上传文件到 MinIO
@@ -34,7 +86,15 @@ export class UploadService {
 
             await this.uploadWithXHR(file, presignedUrl, onProgress);
         } catch (error) {
-            console.error('Upload failed:', error);
+            handleError(error, {
+                operation: 'FileUpload',
+                filename: file.name,
+                additionalInfo: {
+                    objectName,
+                    bucket: this.settings.bucket,
+                    size: file.size
+                }
+            });
             const message = error instanceof Error ? error.message : 'Unknown error';
             throw new Error(`Upload failed: ${message}`);
         }
@@ -96,9 +156,32 @@ export class UploadService {
         const { endpoint, port, useSSL, bucket, customDomain } = this.settings;
 
         if (customDomain) {
-            return `${customDomain}/${bucket}/${objectName}`;
+            // 验证自定义域名
+            const validation = this.validateCustomDomain(customDomain);
+            if (!validation.valid) {
+                handleError(validation.error || 'Invalid custom domain', 'GenerateAccessUrl');
+                // 降级使用默认端点
+                return this.generateDefaultUrl(endpoint, port, useSSL, bucket, objectName);
+            }
+
+            // 使用标准化的自定义域名
+            const normalized = this.normalizeCustomDomain(customDomain);
+            return `${normalized}/${bucket}/${objectName}`;
         }
 
+        return this.generateDefaultUrl(endpoint, port, useSSL, bucket, objectName);
+    }
+
+    /**
+     * 生成默认的访问 URL
+     */
+    private generateDefaultUrl(
+        endpoint: string,
+        port: number,
+        useSSL: boolean,
+        bucket: string,
+        objectName: string
+    ): string {
         const protocol = useSSL ? 'https' : 'http';
         const portStr = port === 443 || port === 80 ? '' : `:${port}`;
         const host = `${protocol}://${endpoint}${portStr}`;

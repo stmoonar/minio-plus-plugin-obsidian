@@ -11,6 +11,8 @@ import { SyncService } from '../services/SyncService';
 import { ImageGrid } from '../components/ImageGrid';
 import { SearchComponent } from '../components/SearchComponent';
 import { MinioObject, GalleryState } from '../types/gallery';
+import { isImageFile } from '../utils/FileUtils';
+import { handleError } from '../utils/ErrorHandler';
 
 export const GALLERY_VIEW_TYPE = 'minio-gallery-view';
 
@@ -122,7 +124,7 @@ export class MinioGalleryView extends ItemView {
             this.state.remoteObjects = objects;
 
             const imageObjects = objects
-                .filter(obj => this.isImageFile(obj.name))
+                .filter(obj => isImageFile(obj.name))
                 .sort((a, b) => (b.lastModified?.getTime() || 0) - (a.lastModified?.getTime() || 0));
 
             this.createImageGrid();
@@ -176,7 +178,7 @@ export class MinioGalleryView extends ItemView {
             let objectsToRender: MinioObject[];
 
             if (searchText.trim() === '') {
-                objectsToRender = this.state.remoteObjects.filter(obj => this.isImageFile(obj.name));
+                objectsToRender = this.state.remoteObjects.filter(obj => isImageFile(obj.name));
                 this.state.isSearching = false;
                 this.state.savedSearchTerm = '';
             } else {
@@ -250,11 +252,7 @@ export class MinioGalleryView extends ItemView {
         modal.open();
     }
 
-    private isImageFile(filename: string): boolean {
-        const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
-        return imageExtensions.some(ext => filename.toLowerCase().endsWith(ext));
-    }
-
+    
     private async getObjectUrl(objectName: string): Promise<string> {
         const cachedUrl = await ImageCache.get(objectName);
         if (cachedUrl) return cachedUrl;
@@ -271,10 +269,15 @@ export class MinioGalleryView extends ItemView {
                 this.state.remoteObjects = objects;
 
                 if (!this.state.isSearching) {
-                    this.state.visibleImages = objects.filter(obj => this.isImageFile(obj.name));
+                    this.state.visibleImages = objects.filter(obj => isImageFile(obj.name));
                 }
             } catch (error) {
-                console.error('Auto sync failed:', error);
+                handleError(error, {
+                    operation: 'AutoSync',
+                    additionalInfo: {
+                        interval: '120000ms'
+                    }
+                });
             }
         }, 120000);
     }

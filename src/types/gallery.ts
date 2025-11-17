@@ -1,4 +1,5 @@
 import { MinioPluginSettings } from "./settings";
+import { Client } from "minio-es";
 
 export interface MinioObject {
 	name: string;
@@ -55,6 +56,6 @@ export interface LazyImageOptions {
 }
 
 export interface ServiceDependencies {
-	client: any;
+	client: Client;
 	settings: MinioPluginSettings;
 }

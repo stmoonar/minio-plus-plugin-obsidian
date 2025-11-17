@@ -6,6 +6,7 @@ import { MinioPluginSettings, DEFAULT_SETTINGS } from './types/settings';
 import { SettingsManager } from './settings/SettingsManager';
 import { FileProcessor } from './services/FileProcessor';
 import { UploadService, UploadProgress } from './services/UploadService';
+import { handleUploadError } from './utils/ErrorHandler';
 
 interface Position {
     line: number;
@@ -167,7 +168,7 @@ export default class MinioPlusPlugin extends Plugin {
             }, 200);
 
         } catch (error) {
-            console.error('Upload failed:', error);
+            handleUploadError(error, file.name);
             editor.replaceRange('', startPos, {
                 line: startPos.line,
                 ch: startPos.ch + previewText.length
