@@ -96,9 +96,9 @@ export class FileProcessor {
         } else if (type === 'audio') {
             return `${this.settings.audioPreview ? `<audio src="${url}" controls></audio>` : `[${name}](${url})`}\n`;
         } else if (type === 'doc') {
-            return `\n${this.settings.docsPreview ? `<iframe frameborder=0 border=0 width=100% height=800
-            src="${this.settings.docsPreview}${url}">
-        </iframe>` : `[${name}](${url})`}\n`;
+            return this.settings.docsPreview
+                ? `<iframe frameborder="0" border="0" width="100%" height="800" src="${this.settings.docsPreview}${url}"></iframe>\n`
+                : `[${name}](${url})\n`;
         } else {
             throw new Error('Unknown file type');
         }

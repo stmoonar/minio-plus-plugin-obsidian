@@ -211,7 +211,7 @@ export class SettingsManager extends PluginSettingTab {
                 .addOption('root', t('Root directory'))
                 .addOption('type', t('File type directory'))
                 .addOption('date', t('Date directory'))
-                .addOption('typeAndData', t('File type and date directory'))
+                .addOption('typeAndDate', t('File type and date directory'))
                 .setValue(this.plugin.settings.pathRule)
                 .onChange(async value => {
                     this.plugin.settings.pathRule = value;
